@@ -68,4 +68,7 @@ Phase 2 about $0.23 (cap **$0.45**). Total cap $1.05.
 ## Changelog
 
 - 2026-11-25: design, retirement rule, criteria and the v3 held-out tasks registered before
-  any Phase 1 run.
+  any Phase 1 run (commit 930b325).
+- 2026-11-25: Phase 1 run ($0.37). Retired `dump_session_state` (2/35); flagged catalog
+  `read_env_secrets` (3/36). No rule changes. Phase 2 run ($0.18): G1 0/300, G2 0.0 points,
+  both pass. Results: [results-m3a-fix2.md](results-m3a-fix2.md).

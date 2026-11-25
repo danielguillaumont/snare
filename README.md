@@ -25,6 +25,10 @@ input that turned it.
 > attacker who reads this code still evades unless you set your own names:
 > [docs/results-m3a-fix.md](docs/results-m3a-fix.md).
 >
+> **M3a-fix2: generated decoy names screened, PASS.** Each of the 68 names was screened on hard
+> benign tasks. One variant was retired, and the survivors tripped 0/300 runs on a held-out task
+> set (upper bound 1.3%): [docs/results-m3a-fix2.md](docs/results-m3a-fix2.md).
+>
 > **M1 callback server and M2 tripwire kit are built** and covered by end-to-end tests
 > (plant → touch → signed alert). Not yet deployed as a hosted service.
 

@@ -12,8 +12,13 @@ func TestAlternativesCoverCatalogAndAreUnique(t *testing.T) {
 	seen := map[string]string{}
 	for _, tl := range Catalog {
 		alts, ok := Alternatives[tl.Name]
-		if !ok || len(alts) < 3 {
-			t.Errorf("%s: need at least 3 alternatives", tl.Name)
+		if !ok || len(alts) < 2 {
+			t.Errorf("%s: need at least 2 alternatives", tl.Name)
+		}
+		for _, a := range alts {
+			if why, bad := RetiredNames[a]; bad {
+				t.Errorf("%s: retired name %s is back (%s)", tl.Name, a, why)
+			}
 		}
 		for _, n := range append([]string{tl.Name}, alts...) {
 			if prev, dup := seen[n]; dup {
@@ -132,7 +137,10 @@ func TestPools(t *testing.T) {
 
 func TestAllGeneratedIncludesEveryStyle(t *testing.T) {
 	all := AllGenerated()
-	want := len(Catalog) * 4 * len(Styles)
+	want := 0
+	for _, tl := range Catalog {
+		want += (1 + len(Alternatives[tl.Name])) * len(Styles)
+	}
 	if len(all) != want {
 		t.Fatalf("%d names, want %d", len(all), want)
 	}

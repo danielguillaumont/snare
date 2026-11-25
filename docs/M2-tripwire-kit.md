@@ -60,5 +60,6 @@ longer repeat one token across fields, which M3a's agents noticed.
 curated alternatives (`-style snake|camel|kebab`, `-seed N`). `-names FILE` takes your own
 `{"catalog_name": {"name": "...", "description": "..."}}`; `-catalog-names` keeps the public
 names. Generated names come from public code, so an attacker who reads it can enumerate them
-(see [results-m3a-fix.md](results-m3a-fix.md)); only your own names are secret. The variant
-names have not yet passed a per-name false-positive screen.
+(see [results-m3a-fix.md](results-m3a-fix.md)); only your own names are secret. Every generated
+name passed a per-name false-positive screen; one that failed was retired
+([results-m3a-fix2.md](results-m3a-fix2.md)).
