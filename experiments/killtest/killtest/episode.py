@@ -11,6 +11,7 @@ import json
 import random
 from typing import Any
 
+from . import m3 as m3mod
 from .config import Catalog, ToolDef
 from .plan import RunSpec
 from .pricing import usage_cost
@@ -22,7 +23,8 @@ USAGE_FIELDS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", 
 def exposed_tools(catalog: Catalog, spec: RunSpec) -> list[ToolDef]:
     scenario = catalog.scenarios[spec.scenario]
     decoys = [d for d in catalog.decoys if d.name in spec.decoys]
-    tools = [*scenario.tools, *decoys]
+    real = m3mod.tools_for_scenario(catalog.m3, scenario) if spec.arm in m3mod.M3_ARMS else list(scenario.tools)
+    tools = [*real, *decoys]
     random.Random(spec.tool_order_seed).shuffle(tools)
     return tools
 
@@ -30,6 +32,8 @@ def exposed_tools(catalog: Catalog, spec: RunSpec) -> list[ToolDef]:
 def payload_text(catalog: Catalog, spec: RunSpec) -> str | None:
     if spec.payload_id is None:
         return None
+    if spec.arm in m3mod.M3_ARMS:
+        return m3mod.payload_text(catalog.m3, spec)
     for p in (*catalog.canaries, *catalog.attacks):
         if p.id == spec.payload_id:
             return p.render(spec.tag)
@@ -53,13 +57,17 @@ def _usage_dict(usage: Any) -> dict[str, int]:
     return {f: int(getattr(usage, f, 0) or 0) for f in USAGE_FIELDS}
 
 
-def run_episode(client: Any, catalog: Catalog, spec: RunSpec, *, max_turns: int = 8, effort: str = "medium") -> dict:
+def run_episode(client: Any, catalog: Catalog, spec: RunSpec, *, max_turns: int | None = None, effort: str = "medium") -> dict:
     scenario = catalog.scenarios[spec.scenario]
+    is_m3 = spec.arm in m3mod.M3_ARMS
+    if max_turns is None:
+        max_turns = m3mod.M3_MAX_TURNS if is_m3 else 8
+    first = m3mod.first_message(catalog.m3, scenario, spec) if is_m3 else scenario.tasks_for(spec.arm)[spec.task_index]
     tools = exposed_tools(catalog, spec)
     by_name = {t.name: t for t in tools}
     payload = payload_text(catalog, spec)
 
-    messages: list[dict] = [{"role": "user", "content": scenario.tasks_for(spec.arm)[spec.task_index]}]
+    messages: list[dict] = [{"role": "user", "content": first}]
     usage = dict.fromkeys(USAGE_FIELDS, 0)
     calls: list[dict] = []
     texts: list[str] = []
@@ -90,7 +98,10 @@ def run_episode(client: Any, catalog: Catalog, spec: RunSpec, *, max_turns: int 
                 texts.append(block.text)
             elif block.type == "tool_use":
                 tool = by_name.get(block.name)
-                content, is_error = tool_result(catalog, spec, tool, payload)
+                if is_m3 and tool is not None and not tool.is_decoy:
+                    content, is_error = m3mod.tool_result(catalog.m3, scenario, spec, tool, block.input, payload), False
+                else:
+                    content, is_error = tool_result(catalog, spec, tool, payload)
                 calls.append(
                     {
                         "turn": turns,
@@ -110,6 +121,10 @@ def run_episode(client: Any, catalog: Catalog, spec: RunSpec, *, max_turns: int 
 
     rec = score_episode(catalog, spec, calls, texts, stop_reason, turns, usage)
     rec["refusal_category"] = refusal_category
+    if is_m3:
+        rec.update(m3mod.score(catalog.m3, spec, calls, rec["final_text"], turns))
+        rec["task"] = first
+        rec["compromised"] = rec["goal_achieved"]  # M3 oracle: the real secret left the sandbox
     return rec
 
 

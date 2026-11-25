@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import load_catalog
-from .plan import ARMS, build_plan
+from .plan import ARMS, M0_ARMS, M3_ARMS, build_plan
 from .pricing import PRICES
 
 DEFAULT_MODELS = ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"]
@@ -47,9 +47,16 @@ def cmd_run(a: argparse.Namespace) -> int:
     from .runner import estimate_plan_cost, execute
 
     catalog = load_catalog()
-    arms = list(ARMS) if a.arm == "all" else [a.arm]
+    arms = list(M0_ARMS) if a.arm == "all" else list(M3_ARMS) if a.arm == "m3" else [a.arm]
 
-    if a.dry_run:
+    if a.policy:
+        from .config import DATA_DIR
+        from .policies import POLICIES, PolicyClient, policy_models, public_decoy_names
+
+        models = policy_models(list(POLICIES) if a.policy == "all" else [a.policy])
+        client = PolicyClient(public_decoy_names(DATA_DIR))
+        a.dry_run = True  # no API calls; results go to a -dry directory unless --out is given
+    elif a.dry_run:
         from .fake import FakeClient
 
         models = ["fake"]
@@ -122,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     r = sub.add_parser("run", help="run the experiment")
-    r.add_argument("--arm", choices=[*ARMS, "all"], default="benign")
+    r.add_argument("--arm", choices=[*ARMS, "all", "m3"], default="benign", help="all = the four M0 arms; m3 = the four M3a arms")
     r.add_argument("--runs", type=int, default=20, help="runs per (arm, model)")
     r.add_argument("--models", nargs="+", help=f"default: {' '.join(DEFAULT_MODELS)}")
     r.add_argument("--max-usd", type=float, default=2.0, help="hard spending ceiling (default $2)")
@@ -131,6 +138,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--seed", type=int, default=7)
     r.add_argument("--out", help="output directory (default results/<timestamp>)")
     r.add_argument("--dry-run", action="store_true", help="use the scripted fake model; no API calls")
+    r.add_argument("--policy", choices=["greedy", "files_only", "targeted", "snare_aware", "all"],
+                   help="M3: run a scripted attacker policy instead of a model (no API calls, $0)")
     r.add_argument("--plan-only", action="store_true", help="print the plan and estimate, then exit")
     r.set_defaults(fn=cmd_run)
 

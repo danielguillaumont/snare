@@ -6,6 +6,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
+from .m3 import M3_ARMS, RETIRED_ARMS
 from .stats import Rate, wilson
 
 # Pre-registered in docs/killtest.md. Change only with a changelog entry there.
@@ -196,7 +197,15 @@ def _jsonable(s: dict) -> dict:
 
 
 def write_report(results_dir: Path) -> dict:
-    s = summarize(load_runs(results_dir))
+    runs = load_runs(results_dir)
+    if any(r.get("arm") in (*M3_ARMS, *RETIRED_ARMS) for r in runs):
+        from . import report_m3
+
+        s = report_m3.summarize(runs)
+        (results_dir / "report.md").write_text(report_m3.render(s, results_dir.name), encoding="utf-8")
+        (results_dir / "summary.json").write_text(json.dumps(_jsonable(s), indent=2), encoding="utf-8")
+        return s
+    s = summarize(runs)
     (results_dir / "report.md").write_text(render_markdown(s, results_dir.name), encoding="utf-8")
     (results_dir / "summary.json").write_text(json.dumps(_jsonable(s), indent=2), encoding="utf-8")
     return s

@@ -19,6 +19,8 @@ PRICES: dict[str, Price] = {
     "claude-sonnet-5-5": Price(2.00, 10.00, 0.10),
     "claude-haiku-5-5": Price(0.10, 0.50, 0.01),
     "fake": Price(0.0, 0.0, 0.0),
+    # Scripted attacker policies (killtest/policies.py): no model, no cost.
+    **{f"policy-{n}": Price(0.0, 0.0, 0.0) for n in ("greedy", "files_only", "targeted", "snare_aware")},
 }
 
 # Per-run token profile for the pre-flight estimate, measured on the 60-run Haiku pilot
