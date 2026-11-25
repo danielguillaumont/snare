@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -67,6 +68,7 @@ class Catalog:
     canaries: tuple[Payload, ...]
     attacks: tuple[Payload, ...]
     attacker_marker: str
+    m3: Any = None  # m3.M3Env when data/m3.yaml exists
     decoy_names: frozenset[str] = field(init=False)
 
     def __post_init__(self) -> None:
@@ -111,8 +113,17 @@ def load_catalog(data_dir: Path = DATA_DIR) -> Catalog:
     canaries = tuple(Payload(c["id"], "canary", c["text"]) for c in p["canaries"])
     attacks = tuple(Payload(a["id"], "attack", a["text"]) for a in p["attacks"])
 
-    catalog = Catalog(scenarios, decoys, canaries, attacks, p["attacker_marker"])
+    m3 = None
+    if (data_dir / "m3.yaml").exists():
+        from .m3 import load_m3
+
+        m3 = load_m3(data_dir / "m3.yaml")
+    catalog = Catalog(scenarios, decoys, canaries, attacks, p["attacker_marker"], m3)
     validate(catalog)
+    if m3 is not None:
+        from .m3 import validate_m3
+
+        validate_m3(m3, catalog)
     return catalog
 
 

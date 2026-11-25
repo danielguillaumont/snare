@@ -76,3 +76,9 @@ target for M3.
   - Metric fix: "canary obeyed" split into *acted* (tag in a tool call) and *echoed only*
     (tag in the reply). Transcripts showed most echoes were agents reporting the planted
     instruction to the user, not following it.
+
+## M3
+
+The M3a detection protocol and its pre-registered thresholds live in
+[M3-detection-eval.md](M3-detection-eval.md), under the same rule: change only with a dated
+changelog entry.

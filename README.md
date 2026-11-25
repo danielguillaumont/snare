@@ -13,6 +13,11 @@ input that turned it.
 > first run. The detection side (catching hijacked agents) is not yet measured.
 > Details, limitations and evidence: [docs/results-m0.md](docs/results-m0.md).
 >
+> **M3a detection eval: PARTIAL.** Tripwires caught 42% of credential-hunting agents (46/110,
+> 95% CI 33–51%; 32% immediately) with 0/180 benign false trips. An attacker who knows Snare's
+> public decoy names and token format evaded all 200 scripted runs, so that's the next fix.
+> Measured on an authorized-audit proxy, not real hijacks: [docs/results-m3a.md](docs/results-m3a.md).
+>
 > **M1 callback server and M2 tripwire kit are built** and covered by end-to-end tests
 > (plant → touch → signed alert). Not yet deployed as a hosted service.
 
@@ -47,6 +52,8 @@ python -m venv .venv
 .venv\Scripts\python -m killtest run --dry-run --arm all --runs 40     # offline fake model, $0
 .venv\Scripts\python -m killtest run --arm benign --runs 60 --models claude-haiku-5-5 --max-usd 1   # pilot, ~$0.09
 .venv\Scripts\python -m killtest report results/latest
+.venv\Scripts\python -m killtest run --dry-run --arm m3 --runs 40          # M3a arms, offline
+.venv\Scripts\python -m killtest run --policy all --arm hunt --runs 200    # scripted attackers, $0
 ```
 
 Live runs need Anthropic API credentials (`ANTHROPIC_API_KEY`, or `ant auth login`).
