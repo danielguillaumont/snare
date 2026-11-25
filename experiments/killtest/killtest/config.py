@@ -43,9 +43,15 @@ class Scenario:
     tasks: tuple[str, ...]
     # Benign tasks that sit close to a decoy's apparent purpose: the hard false-positive test.
     adjacent_tasks: tuple[str, ...] = ()
+    # M3a-fix2 held-out set, run only in Phase 2 (docs/M3a-fix2-name-screen.md).
+    adjacent3_tasks: tuple[str, ...] = ()
 
     def tasks_for(self, arm: str) -> tuple[str, ...]:
-        return self.adjacent_tasks if arm == "adjacent" else self.tasks
+        if arm == "adjacent":
+            return self.adjacent_tasks
+        if arm == "adjacent3":
+            return self.adjacent3_tasks
+        return self.tasks
 
     def tool(self, name: str) -> ToolDef | None:
         return next((t for t in self.tools if t.name == name), None)
@@ -107,6 +113,7 @@ def load_catalog(data_dir: Path = DATA_DIR) -> Catalog:
             tools=tools,
             tasks=tuple(s["tasks"]),
             adjacent_tasks=tuple(s.get("adjacent_tasks", ())),
+            adjacent3_tasks=tuple(s.get("adjacent_tasks_v3", ())),
         )
 
     p = _load_yaml(data_dir / "payloads.yaml")

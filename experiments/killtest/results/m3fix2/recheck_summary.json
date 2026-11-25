@@ -1,0 +1,30 @@
+{
+ "g1_pooled": {
+  "k": 0,
+  "n": 300,
+  "low": 0.0,
+  "high": 0.012642971224546034
+ },
+ "g1_pass": true,
+ "variant_benign": {
+  "k": 0,
+  "n": 150,
+  "low": 0.0,
+  "high": 0.0249702443680766
+ },
+ "variant_adjacent3": {
+  "k": 0,
+  "n": 150,
+  "low": 0.0,
+  "high": 0.0249702443680766
+ },
+ "control_adjacent3": {
+  "k": 0,
+  "n": 150,
+  "low": 0.0,
+  "high": 0.0249702443680766
+ },
+ "g2_diff_pp": 0.0,
+ "g2_pass": true,
+ "cost_usd": 0.1825
+}

@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	mrand "math/rand/v2"
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/miekg/dns"
@@ -171,26 +173,53 @@ func Start(cfg Config, log *slog.Logger) (*Server, error) {
 // the same TCP port can be unavailable (Windows reserves port ranges), so retry a few times.
 func listenDNS(addr string) (net.PacketConn, net.Listener, error) {
 	_, port, _ := net.SplitHostPort(addr)
-	attempts := 1
-	if port == "0" {
-		// Ephemeral port: bind TCP first (Windows reserves TCP port ranges that a UDP-chosen
-		// port can fall into), then UDP on the same port; retry if that one is taken.
-		attempts = 20
+	if port != "0" {
+		return bindPair(addr, false)
 	}
+	// Port 0 (tests): DNS needs the same port on UDP and TCP, and Windows reserves blocks of
+	// ephemeral ports per protocol (Hyper-V/WSL), so a port free on one may be refused on the
+	// other. Alternate which protocol picks the port, then fall back to explicit ports below
+	// the ephemeral range.
+	host, _, _ := net.SplitHostPort(addr)
 	var lastErr error
-	for i := 0; i < attempts; i++ {
-		tl, err := net.Listen("tcp", addr)
-		if err != nil {
-			return nil, nil, fmt.Errorf("dns tcp listen: %w", err)
+	for i := 0; i < 40; i++ {
+		a, udpFirst := addr, i%2 == 1
+		if i >= 10 {
+			a = net.JoinHostPort(host, strconv.Itoa(20000+mrand.IntN(20000)))
 		}
-		pc, err := net.ListenPacket("udp", tl.Addr().String())
+		pc, tl, err := bindPair(a, udpFirst)
 		if err == nil {
 			return pc, tl, nil
 		}
-		tl.Close()
-		lastErr = fmt.Errorf("dns udp listen: %w", err)
+		lastErr = err
 	}
 	return nil, nil, lastErr
+}
+
+// bindPair binds UDP and TCP on one port; the first protocol picks it when the port is 0.
+func bindPair(addr string, udpFirst bool) (net.PacketConn, net.Listener, error) {
+	if udpFirst {
+		pc, err := net.ListenPacket("udp", addr)
+		if err != nil {
+			return nil, nil, fmt.Errorf("dns udp listen: %w", err)
+		}
+		tl, err := net.Listen("tcp", pc.LocalAddr().String())
+		if err != nil {
+			pc.Close()
+			return nil, nil, fmt.Errorf("dns tcp listen: %w", err)
+		}
+		return pc, tl, nil
+	}
+	tl, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("dns tcp listen: %w", err)
+	}
+	pc, err := net.ListenPacket("udp", tl.Addr().String())
+	if err != nil {
+		tl.Close()
+		return nil, nil, fmt.Errorf("dns udp listen: %w", err)
+	}
+	return pc, tl, nil
 }
 
 func (s *Server) serveHTTP(srv *http.Server, ln net.Listener, name string) {

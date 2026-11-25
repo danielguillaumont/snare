@@ -270,6 +270,7 @@ func nameOptions(seed, namesFile string) (uint64, map[string]decoys.Override, er
 func decoysCmd(args []string) error {
 	fs := flag.NewFlagSet("decoys", flag.ExitOnError)
 	all := fs.Bool("all", false, "list every generated name in every style")
+	table := fs.Bool("table", false, "print each decoy's name pool (catalog name first) in -style")
 	style := fs.String("style", "snake", "naming style: snake, camel or kebab")
 	seed := fs.String("seed", "", "seed (default: random)")
 	namesFile := fs.String("names", "", "JSON file of operator-defined names")
@@ -278,6 +279,13 @@ func decoysCmd(args []string) error {
 	enc.SetIndent("", "  ")
 	if *all {
 		return enc.Encode(decoys.AllGenerated())
+	}
+	if *table {
+		pools, err := decoys.Pools(*style)
+		if err != nil {
+			return err
+		}
+		return enc.Encode(pools)
 	}
 	n, ov, err := nameOptions(*seed, *namesFile)
 	if err != nil {

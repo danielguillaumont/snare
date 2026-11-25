@@ -48,6 +48,8 @@ def cmd_run(a: argparse.Namespace) -> int:
 
     catalog = load_catalog()
     arms = list(M0_ARMS) if a.arm == "all" else list(M3_ARMS) if a.arm == "m3" else [a.arm]
+    if a.arm == "adjacent3" and a.env == "m3a":
+        print("note: adjacent3 with catalog names is the M3a-fix2 control arm")
 
     if a.policy:
         from .config import DATA_DIR
@@ -62,7 +64,7 @@ def cmd_run(a: argparse.Namespace) -> int:
         models = ["fake"]
         content_tools = frozenset(s.content_tool for s in catalog.scenarios.values())
         decoy_names = catalog.decoy_names
-        if a.env == "fix":
+        if a.env != "m3a":  # every name the plan might show, so the fake can recognize decoys
             decoy_names = decoy_names | frozenset(load_fix_names()["all_generated"])
         client = FakeClient(decoy_names, content_tools, catalog.attacker_marker)
     else:
