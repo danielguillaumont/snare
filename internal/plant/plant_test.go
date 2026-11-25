@@ -147,6 +147,9 @@ func TestMCPConfig(t *testing.T) {
 	if cfg.CallbackURL != "https://cb.example.test" {
 		t.Errorf("callback url = %q", cfg.CallbackURL)
 	}
+	if cfg.URLPath != "/v1/" {
+		t.Errorf("url path = %q, want the server's /v1/", cfg.URLPath)
+	}
 	seen := map[string]bool{}
 	for _, tok := range cfg.Tools {
 		if seen[tok] {
@@ -218,5 +221,22 @@ func TestMCPPerInstallNames(t *testing.T) {
 	}
 	if _, _, err := MCP(&fakeMinter{}, MCPOptions{ConfigPath: filepath.Join(t.TempDir(), "d3.json"), Style: "loud"}); err == nil {
 		t.Error("bad style accepted")
+	}
+}
+
+func TestURLPathOf(t *testing.T) {
+	cases := []struct {
+		r    admin.MintResponse
+		want string
+	}{
+		{admin.MintResponse{Token: "abc", URL: "https://cb.test/v1/abc", CallbackURL: "https://cb.test"}, "/v1/"},
+		{admin.MintResponse{Token: "abc", URL: "https://cb.test/api/v2/abc", CallbackURL: "https://cb.test/"}, "/api/v2/"},
+		{admin.MintResponse{Token: "abc", URL: "https://other.test/v1/abc", CallbackURL: "https://cb.test"}, ""},
+		{admin.MintResponse{Token: "abc", URL: "", CallbackURL: ""}, ""},
+	}
+	for _, c := range cases {
+		if got := urlPathOf(c.r); got != c.want {
+			t.Errorf("%+v: got %q want %q", c.r, got, c.want)
+		}
 	}
 }

@@ -29,6 +29,12 @@ input that turned it.
 > benign tasks. One variant was retired, and the survivors tripped 0/300 runs on a held-out task
 > set (upper bound 1.3%): [docs/results-m3a-fix2.md](docs/results-m3a-fix2.md).
 >
+> **M3b decoy safety screen: PASS.** `killtest screen` checks a team's own decoys against
+> their agent's tools before deployment. We gave it M0's 20 decoys blind, with model-written
+> tasks only. It retired the decoy M0 had retired by hand (`fetch_internal_wiki`, 14/129
+> adjacent exposures) and kept all 17 that M0 kept (800 runs, $4.02):
+> [docs/results-m3b.md](docs/results-m3b.md).
+>
 > **M1 callback server and M2 tripwire kit are built** and covered by end-to-end tests
 > (plant → touch → signed alert). Not yet deployed as a hosted service.
 
@@ -93,6 +99,9 @@ bin\snare.exe plant corpus path\to\kb-folder            # break-glass runbook wi
 bin\snare.exe plant mcp    -config decoy-mcp.json -exclude list_api_keys   # 16 screened decoy tools
 bin\snare.exe decoy-mcp    -config decoy-mcp.json         # stdio MCP server (plant mcp prints the client snippet)
 ```
+
+Before planting decoy tools, screen them against your own agent's tools with
+`killtest screen` (see [docs/M2-tripwire-kit.md](docs/M2-tripwire-kit.md#screening-decoys-against-your-own-agent-m3b)).
 
 Each tripwire gets its own token, so an alert names the exact file or tool. Planting never
 overwrites files, and the manifest (`snare-planted.json`) must live outside the planted

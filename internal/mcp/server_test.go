@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -87,7 +89,7 @@ func TestCallFiresCallbackWithoutArguments(t *testing.T) {
 	if len(hits) != 1 {
 		t.Fatalf("want 1 callback, got %v", hits)
 	}
-	if hits[0].path != "/t/snrTOKENA" || hits[0].query != "tool=query_vault_v2" {
+	if hits[0].path != "/v1/snrTOKENA" || hits[0].query != "tool=query_vault_v2" {
 		t.Errorf("callback = %+v", hits[0])
 	}
 	if strings.Contains(hits[0].path+hits[0].query, "customer-ssn") {
@@ -154,7 +156,7 @@ func TestPerInstallNames(t *testing.T) {
 	for _, h := range hits {
 		got[h.path+"?"+h.query] = true
 	}
-	if len(hits) != 2 || !got["/t/tokA?tool=vaultQuery"] || !got["/t/tokB?tool=list_api_keys"] {
+	if len(hits) != 2 || !got["/v1/tokA?tool=vaultQuery"] || !got["/v1/tokB?tool=list_api_keys"] {
 		t.Errorf("hits %v", hits)
 	}
 }
@@ -170,5 +172,19 @@ func TestValidateNames(t *testing.T) {
 		if err := (Config{CallbackURL: "http://x", Tools: base, Names: n}).Validate(); err == nil {
 			t.Errorf("case %d accepted", i)
 		}
+	}
+}
+
+func TestCallbackUsesConfiguredPath(t *testing.T) {
+	got := make(chan string, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got <- r.URL.Path
+	}))
+	defer ts.Close()
+	s := &Server{Cfg: Config{CallbackURL: ts.URL, URLPath: "api/v3", Tools: map[string]string{"list_api_keys": "tokZ"}}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), HTTP: ts.Client()}
+	s.fire(context.Background(), "list_api_keys", "tokZ")
+	s.wg.Wait()
+	if p := <-got; p != "/api/v3/tokZ" {
+		t.Errorf("path %q", p)
 	}
 }

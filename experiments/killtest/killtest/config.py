@@ -20,9 +20,13 @@ class ToolDef:
     result: str = ""
     is_decoy: bool = False
     tier: str = ""
+    # A team's own tool keeps its JSON Schema as given (M3b screen); catalog tools use params.
+    schema: dict | None = field(default=None, compare=False)
 
     def to_api(self) -> dict:
         """Tool definition in Messages API shape."""
+        if self.schema is not None:
+            return {"name": self.name, "description": self.description, "input_schema": self.schema}
         return {
             "name": self.name,
             "description": self.description,

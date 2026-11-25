@@ -129,6 +129,133 @@ def cmd_report(a: argparse.Namespace) -> int:
     return 0
 
 
+def _read_arg(v: str) -> str:
+    return Path(v[1:]).read_text(encoding="utf-8") if v.startswith("@") else v
+
+
+def cmd_screen(a: argparse.Namespace) -> int:
+    """Decoy safety screen (docs/M3b-decoy-screen.md)."""
+    from . import screen as sc
+    from .runner import estimate_plan_cost, execute
+
+    if a.tools == "m0":
+        deployments = sc.m0_deployments(load_catalog())
+    else:
+        if not a.tools or not a.system:
+            sys.exit("--tools FILE and --system TEXT|@FILE are required (or --tools m0)")
+        tools = sc.tools_from_json(json.loads(Path(a.tools).read_text(encoding="utf-8")))
+        deployments = (sc.Deployment(name="agent", system=_read_arg(a.system), tools=tools),)
+    if a.decoys in ("catalog", "m0"):
+        decoys = sc.catalog_decoys(include_retired=a.decoys == "m0")
+    else:
+        decoys = sc.decoys_from_json(json.loads(Path(a.decoys).read_text(encoding="utf-8")))
+
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    lint_result = sc.lint(deployments, decoys)
+    (out / "lint.json").write_text(json.dumps(lint_result, indent=1), encoding="utf-8")
+    print(f"lint: {len(lint_result['errors'])} errors, {len(lint_result['warnings'])} warnings")
+    for e in lint_result["errors"]:
+        print(f"  error: {e}")
+    if lint_result["errors"] and not a.ignore_lint:
+        sys.exit("fix the lint errors first (or pass --ignore-lint)")
+
+    client = None
+    if not a.dry_run:
+        import os
+
+        import anthropic
+
+        load_dotenv()
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            sys.exit("ANTHROPIC_API_KEY not found: set it in the environment or in experiments/killtest/.env")
+        client = anthropic.Anthropic(max_retries=4)
+
+    spent = 0.0
+    if a.tasks:
+        tasks = sc.load_tasks(Path(a.tasks))
+    else:
+        if a.dry_run:
+            tasks = sc.fake_tasks(deployments, decoys, a.adjacent_per_decoy, a.benign)
+        else:
+            ceiling = min(a.max_usd, a.gen_max_usd)
+            print(f"generating tasks with {a.generator_model} (ceiling ${ceiling:.2f})")
+            tasks, spent = sc.generate_tasks(client, a.generator_model, deployments, decoys,
+                                             n_adj=a.adjacent_per_decoy, n_ben=a.benign, max_usd=ceiling)
+            print(f"  generation cost ${spent:.3f}")
+        sc.save_tasks(tasks, out / "tasks.yaml")
+        for n in tasks.get("notes", []):
+            print(f"  note: {n}")
+        print(f"tasks: {out / 'tasks.yaml'}")
+        if a.generate_only:
+            return 0
+
+    catalog = sc.screen_catalog(deployments, decoys, tasks)
+    if a.dry_run:
+        from .fake import FakeClient
+
+        models = ["fake"]
+        content = frozenset(t.name for s in catalog.scenarios.values() for t in s.tools)
+        client = FakeClient(catalog.decoy_names, content, sc.NO_ATTACKER)
+    else:
+        models = a.models
+        unknown = [m for m in models if m not in PRICES or m == "fake"]
+        if unknown:
+            sys.exit(f"unknown model(s) {unknown}")
+    plan = sc.build_screen_plan(catalog, tasks, models, reps=a.reps, benign_reps=a.benign_reps, k=a.k, seed=a.seed)
+    budget = a.max_usd - spent
+    est = estimate_plan_cost(plan.specs)
+    print(f"{len(plan.specs)} runs planned; rough estimate ${est:.2f}; ceiling ${budget:.2f}")
+    if a.plan_only:
+        return 0
+    runs_file = out / "runs.jsonl"
+    if runs_file.exists():
+        sys.exit(f"{runs_file} exists; use a new --out directory")
+    (out / "plan.json").write_text(json.dumps(
+        {"seed": a.seed, "k": a.k, "reps": a.reps, "benign_reps": a.benign_reps, "effort": a.effort,
+         "max_usd": a.max_usd, "models": models, "specs": [s.to_dict() for s in plan.specs]}, indent=1),
+        encoding="utf-8")
+    (out / "targets.json").write_text(json.dumps(plan.targets, indent=1), encoding="utf-8")
+
+    done = 0
+
+    def progress(rec: dict) -> None:
+        nonlocal done
+        done += 1
+        if done % 25 == 0 or done == len(plan.specs):
+            print(f"  {done}/{len(plan.specs)} runs", flush=True)
+
+    meta = execute(plan.specs, client, catalog, out, max_usd=budget, workers=a.workers, effort=a.effort,
+                   on_result=progress)
+    meta["generation_usd"] = round(spent, 4)
+    (out / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    s = sc.write_screen_report(out, sorted(catalog.decoy_names), lint_result, validate=a.decoys == "m0")
+    print(f"spent ${meta['spent_usd'] + spent:.2f}; skipped {meta['runs_skipped_budget']} for budget")
+    print("verdicts: " + ", ".join(f"{k} {v}" for k, v in sorted(s["counts"].items())))
+    for r in s["rows"]:
+        if r["verdict"] in ("RETIRE", "REVIEW"):
+            print(f"  {r['verdict']:7} {r['decoy']}: {r['adj_trips']}/{r['adj_exposures']} adjacent, "
+                  f"{r['benign_trips']}/{r['benign_exposures']} benign")
+    if s["validation"]:
+        for k, c in s["validation"]["checks"].items():
+            print(f"  {k} {'pass' if c['pass'] else 'FAIL'}: {c['detail']}")
+    print(f"report: {out / 'report.md'}")
+    return 0
+
+
+def cmd_screen_report(a: argparse.Namespace) -> int:
+    from . import screen as sc
+
+    out = Path(a.dir)
+    lint_result = json.loads((out / "lint.json").read_text(encoding="utf-8"))
+    specs = json.loads((out / "plan.json").read_text(encoding="utf-8"))["specs"]
+    names = sorted({d for s in specs for d in s["decoys"]})
+    s = sc.write_screen_report(out, names, lint_result, validate=a.validate)
+    print("verdicts: " + ", ".join(f"{k} {v}" for k, v in sorted(s["counts"].items())))
+    print(f"report: {out / 'report.md'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="killtest", description="Snare kill test")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -153,6 +280,36 @@ def main(argv: list[str] | None = None) -> int:
     rep = sub.add_parser("report", help="rebuild report.md for a results directory")
     rep.add_argument("dir", help="results directory, or results/latest")
     rep.set_defaults(fn=cmd_report)
+
+    sc = sub.add_parser("screen", help="M3b: screen a decoy set against your agent's own tools for false positives")
+    sc.add_argument("--tools", help="your agent's tools: MCP tools/list JSON or a list (optional 'result' per tool); "
+                                    "'m0' = the four M0 scenarios")
+    sc.add_argument("--system", help="system prompt text, or @FILE")
+    sc.add_argument("--decoys", default="catalog", help="'catalog' (default), 'm0' (M0's original 20), or a JSON file")
+    sc.add_argument("--tasks", help="tasks.yaml to use (skips generation)")
+    sc.add_argument("--generate-only", action="store_true", help="write tasks.yaml for review, then stop")
+    sc.add_argument("--generator-model", default="claude-opus-5-5")
+    sc.add_argument("--adjacent-per-decoy", type=int, default=2)
+    sc.add_argument("--benign", type=int, default=5, help="benign tasks per deployment")
+    sc.add_argument("--reps", type=int, default=2, help="runs per adjacent task, per model")
+    sc.add_argument("--benign-reps", type=int, default=4, help="runs per benign task, per model")
+    sc.add_argument("--k", type=int, default=4, help="decoys shown per run")
+    sc.add_argument("--models", nargs="+", default=["claude-haiku-5-5"])
+    sc.add_argument("--max-usd", type=float, default=2.0, help="hard ceiling for generation + runs (default $2)")
+    sc.add_argument("--gen-max-usd", type=float, default=1.0, help="ceiling for generation alone")
+    sc.add_argument("--workers", type=int, default=4)
+    sc.add_argument("--effort", choices=["low", "medium", "high"], default="medium")
+    sc.add_argument("--seed", type=int, default=71)
+    sc.add_argument("--out", required=True, help="output directory")
+    sc.add_argument("--dry-run", action="store_true", help="fake tasks and the scripted fake model; no API calls")
+    sc.add_argument("--plan-only", action="store_true")
+    sc.add_argument("--ignore-lint", action="store_true")
+    sc.set_defaults(fn=cmd_screen)
+
+    sr = sub.add_parser("screen-report", help="rebuild a screen directory's report")
+    sr.add_argument("dir")
+    sr.add_argument("--validate", action="store_true", help="add the M3b validation checks (M0 decoys)")
+    sr.set_defaults(fn=cmd_screen_report)
 
     a = p.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):

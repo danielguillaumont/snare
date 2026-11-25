@@ -1,0 +1,6 @@
+{
+ "errors": [],
+ "warnings": [
+  "support: decoy 'export_customer_database' shares ['customer'] with real tool 'lookup_customer'"
+ ]
+}
