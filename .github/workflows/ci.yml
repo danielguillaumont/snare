@@ -35,3 +35,4 @@ jobs:
       - run: python -m killtest run --dry-run --arm all --runs 40
       - run: python -m killtest run --dry-run --arm m3 --runs 40
       - run: python -m killtest run --dry-run --arm m3 --env fix --runs 40
+      - run: python -m killtest screen --tools m0 --decoys m0 --dry-run --out /tmp/screen-dry

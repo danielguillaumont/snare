@@ -59,10 +59,11 @@ dated entry in the changelog below.
 | **KEEP** | No trips in ≥ 30 adjacent exposures. The report gives the Wilson upper bound |
 
    **Why a lower bound of 1%.** It retires a decoy only when the data rule out a low trip rate. At
-   about 130 exposures that means at least 5 trips (≈ 3.8%); at about 60, at least 3 (≈ 5%). In
+   about 130 exposures that means at least 4 trips (≈ 3.1%); at about 60, at least 3 (≈ 5%). In
    M3a-fix2's Phase 1, catalog names that passed M0 tripped about 0.7% per exposure. At 130
-   exposures, a decoy at 0.7% reaches 5 trips with probability ≈ 0.3%, so false retirements of
-   good decoys are rare. A decoy at 10% is retired almost always.
+   exposures, a decoy at 0.7% reaches 4 trips with probability ≈ 1.4%. Across 17 such decoys,
+   that is about a 21% chance of one false retirement and well under 1% of three, which is the V2
+   margin below. A decoy at 2.5% is retired about 41% of the time, and one at 10% almost always.
 
    The report shows every trip: the task, the decoy and its input. A human makes the final call.
 
@@ -126,4 +127,7 @@ Project total so far is about $15 of the $50 budget.
 ## Changelog
 
 - 2026-11-25: design, verdict rule, validation criteria and budget registered before any code
-  or run.
+  or run (commit db24e79).
+- 2026-11-25, before any run: corrected the worked numbers under "Why a lower bound of 1%".
+  The unit tests computed them exactly: 4 trips at about 130 exposures (not 5), and a 1.4% false
+  retirement rate at 0.7% (not 0.3%). The rule and the criteria are unchanged.
