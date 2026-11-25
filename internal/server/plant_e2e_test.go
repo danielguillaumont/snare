@@ -29,6 +29,16 @@ import (
 	"github.com/danielguillaumont/snare/internal/plant"
 )
 
+// field returns the token ID planted for one honey field (each field has its own token).
+func field(es []plant.Entry, name string) string {
+	for _, e := range es {
+		if strings.HasSuffix(e.Label, " "+name) {
+			return e.TokenID
+		}
+	}
+	return "missing-" + name
+}
+
 func copyDir(t *testing.T, src string) string {
 	t.Helper()
 	dst := filepath.Join(t.TempDir(), filepath.Base(src))
@@ -89,7 +99,7 @@ func TestEndToEndPlantedTripwiresFire(t *testing.T) {
 	}
 
 	// Public URLs point at cb.test; route them to the bound listener, keeping the Host header.
-	get := func(raw string) {
+	get := func(raw string, auth ...string) {
 		t.Helper()
 		u, err := url.Parse(raw)
 		if err != nil {
@@ -97,6 +107,9 @@ func TestEndToEndPlantedTripwiresFire(t *testing.T) {
 		}
 		req, _ := http.NewRequest("GET", "http://"+s.HTTPAddr+u.RequestURI(), nil)
 		req.Host = u.Host
+		if len(auth) > 0 {
+			req.Header.Set("Authorization", "Bearer "+auth[0])
+		}
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -112,7 +125,7 @@ func TestEndToEndPlantedTripwiresFire(t *testing.T) {
 			vals[k] = v
 		}
 	}
-	get(vals["PAYMENTS_API_BASE_URL"] + "/v1/payouts")
+	get(vals["PAYMENTS_API_BASE_URL"]+"/v1/payouts", vals["PAYMENTS_API_KEY"])
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(vals["PAYMENTS_DB_HOST"]), dns.TypeA)
 	if _, _, err := new(dns.Client).Exchange(m, s.DNSAddr); err != nil {
@@ -153,9 +166,10 @@ func TestEndToEndPlantedTripwiresFire(t *testing.T) {
 	want := []struct {
 		id, channel, what string
 	}{
-		{repoE[0].TokenID, "http", "repo honey base URL"},
-		{repoE[0].TokenID, "dns", "repo honey DB host"},
-		{corpusE[0].TokenID, "http", "corpus runbook image"},
+		{field(repoE, "base_url"), "http", "repo honey base URL"},
+		{field(repoE, "api_key"), "http", "repo honey API key (sent as a bearer token)"},
+		{field(repoE, "db_host"), "dns", "repo honey DB host"},
+		{field(corpusE, "base_url"), "http", "corpus runbook image"},
 		{vaultID, "http", "decoy MCP tool"},
 	}
 	deadline := time.Now().Add(5 * time.Second)

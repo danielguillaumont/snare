@@ -7,12 +7,15 @@
 //	snare plant repo|corpus <dir>         plant honey credentials / canary docs
 //	snare plant mcp -config F             write a decoy MCP server config
 //	snare decoy-mcp -config F             run the decoy MCP server on stdio
+//	snare decoys [-all]                   print decoy names as JSON (for the eval harness)
 package main
 
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -24,6 +27,7 @@ import (
 	"time"
 
 	"github.com/danielguillaumont/snare/internal/admin"
+	"github.com/danielguillaumont/snare/internal/decoys"
 	"github.com/danielguillaumont/snare/internal/mcp"
 	"github.com/danielguillaumont/snare/internal/plant"
 	"github.com/danielguillaumont/snare/internal/server"
@@ -48,6 +52,8 @@ func main() {
 		err = plantCmd(os.Args[2:])
 	case "decoy-mcp":
 		err = decoyMCP(os.Args[2:])
+	case "decoys":
+		err = decoysCmd(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -67,7 +73,9 @@ func usage() {
   snare plant repo   [-dry-run] [-manifest F] <dir>
   snare plant corpus [-dry-run] [-manifest F] [-with-instruction] <dir>
   snare plant mcp    [-dry-run] [-manifest F] -config F [-name N] [-exclude a,b]
+                     [-style snake|camel|kebab] [-seed N] [-names F] [-catalog-names]
   snare decoy-mcp -config F
+  snare decoys [-seed N -style S -names F | -all]
 `)
 }
 
@@ -166,6 +174,10 @@ func plantCmd(args []string) error {
 	config := fs.String("config", "", "mcp: path for the decoy-mcp config file")
 	name := fs.String("name", "internal-ops", "mcp: server name advertised to clients")
 	exclude := fs.String("exclude", "", "mcp: comma-separated decoys to skip (ones overlapping the agent's real job)")
+	style := fs.String("style", "snake", "mcp: decoy naming style to match your real tools: snake, camel or kebab")
+	seed := fs.String("seed", "", "mcp: seed for per-install decoy names (default: random)")
+	namesFile := fs.String("names", "", "mcp: JSON file {catalog_name: {name, description}} of your own decoy names")
+	catalogNames := fs.Bool("catalog-names", false, "mcp: use the public catalog names (easy to fingerprint; not recommended)")
 	_ = fs.Parse(args[1:])
 	opts := plant.Options{DryRun: *dry}
 	c := client()
@@ -193,9 +205,16 @@ func plantCmd(args []string) error {
 				ex = append(ex, x)
 			}
 		}
-		exe, _ := os.Executable()
+		mo := plant.MCPOptions{Options: opts, ConfigPath: *config, ServerName: *name, Exclude: ex}
+		if mo.Seed, mo.Overrides, err = nameOptions(*seed, *namesFile); err != nil {
+			return err
+		}
+		if !*catalogNames {
+			mo.Style = *style
+		}
+		mo.Command, _ = os.Executable()
 		var snippet string
-		entries, snippet, err = plant.MCP(c, plant.MCPOptions{Options: opts, ConfigPath: *config, ServerName: *name, Exclude: ex, Command: exe})
+		entries, snippet, err = plant.MCP(c, mo)
 		if err == nil {
 			fmt.Println("Add this to your MCP client config (e.g. .mcp.json or claude_desktop_config.json):")
 			fmt.Println(snippet)
@@ -218,6 +237,66 @@ func plantCmd(args []string) error {
 	}
 	fmt.Printf("manifest: %s (keep it out of the planted repo/corpus)\n", *manifest)
 	return nil
+}
+
+// nameOptions parses -seed (random when empty) and -names.
+func nameOptions(seed, namesFile string) (uint64, map[string]decoys.Override, error) {
+	var n uint64
+	if seed == "" {
+		var b [8]byte
+		if _, err := rand.Read(b[:]); err != nil {
+			return 0, nil, err
+		}
+		n = binary.LittleEndian.Uint64(b[:])
+	} else if _, err := fmt.Sscan(seed, &n); err != nil {
+		return 0, nil, fmt.Errorf("-seed %q: want an unsigned integer", seed)
+	}
+	if namesFile == "" {
+		return n, nil, nil
+	}
+	b, err := os.ReadFile(namesFile)
+	if err != nil {
+		return 0, nil, err
+	}
+	var ov map[string]decoys.Override
+	if err := json.Unmarshal(b, &ov); err != nil {
+		return 0, nil, fmt.Errorf("%s: %w", namesFile, err)
+	}
+	return n, ov, nil
+}
+
+// decoysCmd prints decoy names as JSON. The eval harness reads it so names have one source
+// of truth (this Go package). -all lists every name the built-in generator can produce.
+func decoysCmd(args []string) error {
+	fs := flag.NewFlagSet("decoys", flag.ExitOnError)
+	all := fs.Bool("all", false, "list every generated name in every style")
+	style := fs.String("style", "snake", "naming style: snake, camel or kebab")
+	seed := fs.String("seed", "", "seed (default: random)")
+	namesFile := fs.String("names", "", "JSON file of operator-defined names")
+	_ = fs.Parse(args)
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if *all {
+		return enc.Encode(decoys.AllGenerated())
+	}
+	n, ov, err := nameOptions(*seed, *namesFile)
+	if err != nil {
+		return err
+	}
+	picks, err := decoys.Pick(n, *style, ov)
+	if err != nil {
+		return err
+	}
+	type row struct {
+		Canonical   string `json:"canonical"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	var out []row
+	for _, p := range picks {
+		out = append(out, row{p.Canonical, p.Name, p.Description})
+	}
+	return enc.Encode(out)
 }
 
 func decoyMCP(args []string) error {

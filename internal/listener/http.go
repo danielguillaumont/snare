@@ -97,9 +97,19 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		return
 	}
-	if id, ok := h.Signer.Find(r.Host + " " + r.URL.Path + "?" + r.URL.RawQuery); ok {
-		detail := r.Method + " " + r.URL.Path + " ua=" + r.UserAgent()
-		if err := h.Recorder.Hit(r.Context(), id, "http", ip, detail); err != nil {
+	detail := r.Method + " " + r.URL.Path + " ua=" + r.UserAgent()
+	urlID, urlHit := h.Signer.Find(r.Host + " " + r.URL.Path + "?" + r.URL.RawQuery)
+	if urlHit {
+		if err := h.Recorder.Hit(r.Context(), urlID, "http", ip, detail); err != nil {
+			h.Log.Error("record http hit", "err", err)
+		}
+	}
+	// A stolen honey API key arrives in a credential header, usually sent to the honey base
+	// URL. Record it as its own hit so the alert says which value was used. Only the fact
+	// that a token arrived in a header is stored, never the header itself.
+	creds := r.Header.Get("Authorization") + " " + r.Header.Get("X-Api-Key") + " " + r.Header.Get("Api-Key")
+	if id, ok := h.Signer.Find(creds); ok && (!urlHit || id != urlID) {
+		if err := h.Recorder.Hit(r.Context(), id, "http", ip, detail+" via=credential-header"); err != nil {
 			h.Log.Error("record http hit", "err", err)
 		}
 	}

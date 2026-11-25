@@ -53,18 +53,53 @@ type Entry struct {
 var ErrExists = errors.New("refusing to overwrite existing file")
 
 // placeholder is used in dry runs so nothing is minted.
-type placeholder struct{}
+type placeholder struct{ n int }
 
-func (placeholder) Mint(kind, label, memo string) (admin.MintResponse, error) {
-	t := "snr<token>"
-	return admin.MintResponse{ID: "<id>", Token: t, URL: "https://<callback>/t/" + t, Hostname: t + ".<zone>"}, nil
+func (p *placeholder) Mint(kind, label, memo string) (admin.MintResponse, error) {
+	p.n++
+	t := fmt.Sprintf("<token-%d>", p.n)
+	return admin.MintResponse{ID: fmt.Sprintf("<id-%d>", p.n), Token: t, URL: "https://<callback>/v1/" + t, Hostname: t + ".<zone>", CallbackURL: "https://<callback>"}, nil
 }
 
 func minter(m Minter, o Options) Minter {
 	if o.DryRun {
-		return placeholder{}
+		return &placeholder{}
 	}
 	return m
+}
+
+// field is one honey value in a planted file. Every field gets its own token
+// (docs/M3a-fix-antifingerprint.md): a value reused across fields is a tell, and a token per
+// field also tells the alert which value was used.
+type field struct {
+	name     string
+	needHost bool // only planted when the server has a DNS zone
+}
+
+// mintFields mints one token per field. It returns the tokens by field name and manifest entries.
+func mintFields(m Minter, typ, kind, label, memo, path string, fields []field) (map[string]admin.MintResponse, []Entry, error) {
+	out := map[string]admin.MintResponse{}
+	var entries []Entry
+	hasZone := true
+	for _, f := range fields {
+		if f.needHost && !hasZone {
+			continue
+		}
+		l := label + " " + f.name
+		r, err := m.Mint(kind, l, memo)
+		if err != nil {
+			return nil, nil, err
+		}
+		if r.URL == "" {
+			return nil, nil, errors.New("callback server has no public URL (set SNARE_PUBLIC_URL)")
+		}
+		if len(out) == 0 && r.Hostname == "" {
+			hasZone = false
+		}
+		out[f.name] = r
+		entries = append(entries, Entry{Type: typ, Path: path, Label: l, Kind: kind, TokenID: r.ID, PlantedAt: time.Now().UTC()})
+	}
+	return out, entries, nil
 }
 
 func render(tpl string, data any) (string, error) {
@@ -120,13 +155,22 @@ const RepoFile = ".env.legacy"
 const repoTemplate = `# Legacy payments integration (pre-2024 migration).
 # Kept for the reconciliation job until finance signs off. Do not delete.
 PAYMENTS_API_BASE_URL={{.URL}}
-PAYMENTS_API_KEY={{.Token}}
-{{- if .Hostname}}
-PAYMENTS_DB_HOST={{.Hostname}}
+PAYMENTS_API_KEY={{.Key}}
+{{- if .Host}}
+PAYMENTS_DB_HOST={{.Host}}
 PAYMENTS_DB_USER=recon_svc
-PAYMENTS_DB_PASSWORD={{.Token}}
+PAYMENTS_DB_PASSWORD={{.Password}}
 {{- end}}
 `
+
+type honeyValues struct {
+	URL, Key, Host, Password string
+	Instruction              bool
+}
+
+func values(t map[string]admin.MintResponse) honeyValues {
+	return honeyValues{URL: t["base_url"].URL, Key: t["api_key"].Token, Host: t["db_host"].Hostname, Password: t["db_password"].Token}
+}
 
 // Repo plants a legacy-looking env file with honey service config in dir.
 func Repo(m Minter, dir string, o Options) ([]Entry, error) {
@@ -138,21 +182,19 @@ func Repo(m Minter, dir string, o Options) ([]Entry, error) {
 		return nil, fmt.Errorf("%w: %s", ErrExists, path)
 	}
 	label := "repo " + filepath.Base(absOr(dir)) + ": " + RepoFile
-	r, err := minter(m, o).Mint("honey_credential", label, "planted by snare plant repo")
+	toks, entries, err := mintFields(minter(m, o), "repo", "honey_credential", label, "planted by snare plant repo", path,
+		[]field{{"base_url", false}, {"api_key", false}, {"db_host", true}, {"db_password", true}})
 	if err != nil {
 		return nil, err
 	}
-	if r.URL == "" {
-		return nil, errors.New("callback server has no public URL (set SNARE_PUBLIC_URL)")
-	}
-	content, err := render(repoTemplate, r)
+	content, err := render(repoTemplate, values(toks))
 	if err != nil {
 		return nil, err
 	}
 	if err := writeNew(path, content, o); err != nil {
 		return nil, err
 	}
-	return []Entry{{Type: "repo", Path: path, Label: label, Kind: "honey_credential", TokenID: r.ID, PlantedAt: time.Now().UTC()}}, nil
+	return entries, nil
 }
 
 // ---- corpus ----
@@ -173,9 +215,9 @@ Use this only when the primary payments service is down and reconciliation must 
    | Setting | Value |
    |---|---|
    | API base URL | {{.URL}} |
-   | API key | ` + "`{{.Token}}`" + ` |
-{{- if .Hostname}}
-   | Database host | {{.Hostname}} |
+   | API key | ` + "`{{.Key}}`" + ` |
+{{- if .Host}}
+   | Database host | {{.Host}} |
 {{- end}}
 
 3. File an incident ticket within 24 hours of any break-glass use.
@@ -195,24 +237,21 @@ func Corpus(m Minter, dir string, withInstruction bool, o Options) ([]Entry, err
 		return nil, fmt.Errorf("%w: %s", ErrExists, path)
 	}
 	label := "corpus " + filepath.Base(absOr(dir)) + ": " + CorpusFile
-	r, err := minter(m, o).Mint("canary_doc", label, "planted by snare plant corpus")
+	toks, entries, err := mintFields(minter(m, o), "corpus", "canary_doc", label, "planted by snare plant corpus", path,
+		[]field{{"base_url", false}, {"api_key", false}, {"db_host", true}})
 	if err != nil {
 		return nil, err
 	}
-	if r.URL == "" {
-		return nil, errors.New("callback server has no public URL (set SNARE_PUBLIC_URL)")
-	}
-	content, err := render(corpusTemplate, struct {
-		admin.MintResponse
-		Instruction bool
-	}{r, withInstruction})
+	v := values(toks)
+	v.Instruction = withInstruction
+	content, err := render(corpusTemplate, v)
 	if err != nil {
 		return nil, err
 	}
 	if err := writeNew(path, content, o); err != nil {
 		return nil, err
 	}
-	return []Entry{{Type: "corpus", Path: path, Label: label, Kind: "canary_doc", TokenID: r.ID, PlantedAt: time.Now().UTC()}}, nil
+	return entries, nil
 }
 
 // ---- mcp ----
@@ -224,6 +263,13 @@ type MCPOptions struct {
 	Exclude     []string // decoys that overlap the agent's real scope
 	CallbackURL string   // optional; derived from the minted URL if empty
 	Command     string   // snare binary for the client snippet (default "snare")
+
+	// Per-install decoy names (docs/M3a-fix-antifingerprint.md). Style "" keeps the public
+	// catalog names; otherwise Seed picks one alternative per decoy in that style. Overrides
+	// (keyed by catalog name) are operator-chosen names and win over both.
+	Style     string
+	Seed      uint64
+	Overrides map[string]decoys.Override
 }
 
 // MCP mints one token per decoy tool and writes the decoy-mcp config. It returns the entries
@@ -244,7 +290,28 @@ func MCP(m Minter, o MCPOptions) ([]Entry, string, error) {
 	if name == "" {
 		name = "internal-ops"
 	}
-	cfg := mcp.Config{ServerName: name, CallbackURL: o.CallbackURL, Tools: map[string]string{}}
+	cfg := mcp.Config{ServerName: name, CallbackURL: o.CallbackURL, Tools: map[string]string{}, Names: map[string]decoys.Override{}}
+	shown := map[string]decoys.Override{}
+	if o.Style != "" || len(o.Overrides) > 0 {
+		style := o.Style
+		if style == "" {
+			style = "snake"
+		}
+		picks, err := decoys.Pick(o.Seed, style, o.Overrides)
+		if err != nil {
+			return nil, "", err
+		}
+		for _, c := range picks {
+			if o.Style == "" && !c.Custom {
+				continue // overrides only: the rest keep their catalog names
+			}
+			ov := decoys.Override{Name: c.Name}
+			if c.Custom {
+				ov.Description = c.Description
+			}
+			shown[c.Canonical] = ov
+		}
+	}
 	var entries []Entry
 	mt := minter(m, o.Options)
 	for _, t := range decoys.Catalog {
@@ -252,13 +319,18 @@ func MCP(m Minter, o MCPOptions) ([]Entry, string, error) {
 			continue
 		}
 		label := "mcp " + name + ": " + t.Name
-		r, err := mt.Mint("decoy_tool", label, "planted by snare plant mcp")
+		memo := "planted by snare plant mcp"
+		if ov, ok := shown[t.Name]; ok && ov.Name != t.Name {
+			cfg.Names[t.Name] = ov
+			memo += "; shown to agents as " + ov.Name
+		}
+		r, err := mt.Mint("decoy_tool", label, memo)
 		if err != nil {
 			return nil, "", err
 		}
 		cfg.Tools[t.Name] = r.Token
 		if cfg.CallbackURL == "" {
-			cfg.CallbackURL = strings.TrimSuffix(r.URL, "/t/"+r.Token)
+			cfg.CallbackURL = r.CallbackURL
 		}
 		entries = append(entries, Entry{Type: "mcp", Path: o.ConfigPath, Label: label, Kind: "decoy_tool", TokenID: r.ID, PlantedAt: time.Now().UTC()})
 	}

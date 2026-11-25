@@ -7,6 +7,7 @@ exactly which tools were touched and with what input.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import random
 from typing import Any
@@ -22,7 +23,8 @@ USAGE_FIELDS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", 
 
 def exposed_tools(catalog: Catalog, spec: RunSpec) -> list[ToolDef]:
     scenario = catalog.scenarios[spec.scenario]
-    decoys = [d for d in catalog.decoys if d.name in spec.decoys]
+    # M3a-fix: decoys appear under the run's per-install names.
+    decoys = [dataclasses.replace(d, name=spec.shown_name(d.name)) for d in catalog.decoys if d.name in spec.decoys]
     real = m3mod.tools_for_scenario(catalog.m3, scenario) if spec.arm in m3mod.M3_ARMS else list(scenario.tools)
     tools = [*real, *decoys]
     random.Random(spec.tool_order_seed).shuffle(tools)

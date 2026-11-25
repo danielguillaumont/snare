@@ -18,6 +18,13 @@ input that turned it.
 > public decoy names and token format evaded all 200 scripted runs, so that's the next fix.
 > Measured on an authorized-audit proxy, not real hijacks: [docs/results-m3a.md](docs/results-m3a.md).
 >
+> **M3a-fix anti-fingerprinting: 1 of 3 criteria met.** Tokens no longer have a fixed prefix,
+> each honey field gets its own token, and decoys can take per-install names. The scripted
+> attacker that evaded 200/200 is now caught 200/200. Warned agents still flag the honey key
+> about as often (69% vs 75%), generated names need screening (4/120 hard-benign trips), and an
+> attacker who reads this code still evades unless you set your own names:
+> [docs/results-m3a-fix.md](docs/results-m3a-fix.md).
+>
 > **M1 callback server and M2 tripwire kit are built** and covered by end-to-end tests
 > (plant → touch → signed alert). Not yet deployed as a hosted service.
 

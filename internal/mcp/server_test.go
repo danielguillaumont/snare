@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/danielguillaumont/snare/internal/decoys"
 )
 
 type hit struct{ path, query string }
@@ -119,5 +121,54 @@ func TestValidateRejectsRetiredDecoys(t *testing.T) {
 	c.Tools = map[string]string{"query_vault_v2": "snrX"}
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPerInstallNames(t *testing.T) {
+	c := Config{
+		Tools: map[string]string{"query_vault_v2": "tokA", "list_api_keys": "tokB"},
+		Names: map[string]decoys.Override{"query_vault_v2": {Name: "vaultQuery", Description: "Look up a secret."}},
+	}
+	resps, hits := run(t, c,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"query_vault_v2"}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"vaultQuery"}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"list_api_keys"}}`,
+	)
+	var names []string
+	for _, x := range resps[0]["result"].(map[string]any)["tools"].([]any) {
+		m := x.(map[string]any)
+		names = append(names, m["name"].(string))
+		if m["name"] == "vaultQuery" && m["description"] != "Look up a secret." {
+			t.Errorf("description not overridden: %v", m)
+		}
+	}
+	if strings.Join(names, ",") != "list_api_keys,vaultQuery" {
+		t.Errorf("listed %v", names)
+	}
+	// The public catalog name is not callable once renamed: it would be a fingerprint.
+	if e, ok := resps[1]["error"].(map[string]any); !ok || e["code"] != float64(-32602) {
+		t.Errorf("canonical name of a renamed decoy accepted: %v", resps[1])
+	}
+	got := map[string]bool{} // callbacks are async: order varies
+	for _, h := range hits {
+		got[h.path+"?"+h.query] = true
+	}
+	if len(hits) != 2 || !got["/t/tokA?tool=vaultQuery"] || !got["/t/tokB?tool=list_api_keys"] {
+		t.Errorf("hits %v", hits)
+	}
+}
+
+func TestValidateNames(t *testing.T) {
+	base := map[string]string{"query_vault_v2": "a", "list_api_keys": "b"}
+	bad := []map[string]decoys.Override{
+		{"read_env_secrets": {Name: "x"}},           // not a configured tool
+		{"query_vault_v2": {Name: "has space"}},     // invalid name
+		{"query_vault_v2": {Name: "list_api_keys"}}, // collides with another shown name
+	}
+	for i, n := range bad {
+		if err := (Config{CallbackURL: "http://x", Tools: base, Names: n}).Validate(); err == nil {
+			t.Errorf("case %d accepted", i)
+		}
 	}
 }
