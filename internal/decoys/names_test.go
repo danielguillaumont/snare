@@ -112,6 +112,24 @@ func TestPickOverridesAndValidation(t *testing.T) {
 	}
 }
 
+func TestPools(t *testing.T) {
+	p, err := Pools("snake")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p) != len(Catalog) {
+		t.Fatalf("%d pools", len(p))
+	}
+	for _, tl := range Catalog {
+		if got := p[tl.Name]; len(got) != 1+len(Alternatives[tl.Name]) || got[0] != tl.Name {
+			t.Errorf("%s: pool %v", tl.Name, got)
+		}
+	}
+	if _, err := Pools("x"); err == nil {
+		t.Error("bad style accepted")
+	}
+}
+
 func TestAllGeneratedIncludesEveryStyle(t *testing.T) {
 	all := AllGenerated()
 	want := len(Catalog) * 4 * len(Styles)

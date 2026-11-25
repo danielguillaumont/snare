@@ -13,12 +13,17 @@ from .config import DATA_DIR, Catalog
 DECOYS_PER_RUN = 4
 M0_ARMS = ("benign", "adjacent", "canary", "attack")
 M3_ARMS = ("benign3", "inject", "hunt", "hunt_aware")  # docs/M3-detection-eval.md (v2)
-ARMS = (*M0_ARMS, *M3_ARMS)
+FIX2_ARMS = ("adjacent3",)  # M3a-fix2 Phase 2 held-out tasks
+ARMS = (*M0_ARMS, *M3_ARMS, *FIX2_ARMS)
 # Environments. "m3a" reproduces M3a exactly. "fix" is the M3a-fix environment
 # (docs/M3a-fix-antifingerprint.md): v2-shaped honey with its own URL token, varied
 # real-secret shapes, and per-install decoy names exported from the Go code.
-ENVS = ("m3a", "fix")
+# "screen" and "variants" (M3a-fix2, docs/M3a-fix2-name-screen.md) show each decoy under a name
+# from its pool, cycled so every name gets equal exposure. screen = catalog name + alternatives;
+# variants = surviving alternatives only.
+ENVS = ("m3a", "fix", "screen", "variants")
 FIX_NAMES_FILE = DATA_DIR / "decoy_names_fix.json"
+POOL_FILES = {"screen": DATA_DIR / "decoy_names_screen.json", "variants": DATA_DIR / "decoy_names_variants.json"}
 B32 = "abcdefghijklmnopqrstuvwxyz234567"
 HEX = "0123456789abcdef"
 
@@ -123,6 +128,28 @@ def load_fix_names(path=FIX_NAMES_FILE) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def load_pools(env: str) -> dict[str, list[str]]:
+    return json.loads(POOL_FILES[env].read_text(encoding="utf-8"))["pools"]
+
+
+class NameCycler:
+    """Hands out each decoy's names in reshuffled rounds, so every name in a pool is exposed
+    equally often (within one per decoy). Uses its own RNG so other plan draws don't change."""
+
+    def __init__(self, pools: dict[str, list[str]], seed: int) -> None:
+        self.pools = pools
+        self.rng = random.Random(seed ^ 0x5C2EE7)
+        self.queues: dict[str, deque[str]] = {}
+
+    def next(self, canonical: str) -> str:
+        q = self.queues.setdefault(canonical, deque())
+        if not q:
+            names = list(self.pools[canonical])
+            self.rng.shuffle(names)
+            q.extend(names)
+        return q.popleft()
+
+
 def make_tag(rng: random.Random) -> str:
     return "SNR-" + "".join(rng.choice("0123456789ABCDEF") for _ in range(6))
 
@@ -134,6 +161,18 @@ def build_plan(
     if env not in ENVS:
         raise ValueError(f"unknown env {env!r}")
     installs = load_fix_names()["installs"] if env == "fix" else []
+    cycler = None
+    if env in POOL_FILES:
+        pools = load_pools(env)
+        if set(pools) != catalog.decoy_names or any(not v for v in pools.values()):
+            raise ValueError(f"{env}: pools must cover every catalog decoy with at least one name")
+        real = {t.name for s in catalog.scenarios.values() for t in s.tools}
+        if catalog.m3:
+            real |= set(catalog.m3.extra_tools)
+        flat = [n for v in pools.values() for n in v]
+        if len(flat) != len(set(flat)) or real & set(flat):
+            raise ValueError(f"{env}: pool names must be unique and not collide with real tools")
+        cycler = NameCycler(pools, seed)
     if installs:
         real = {t.name for s in catalog.scenarios.values() for t in s.tools}
         if catalog.m3:
@@ -158,6 +197,7 @@ def build_plan(
         payloads = {
             "benign": [None],
             "adjacent": [None],
+            "adjacent3": [None],
             "canary": [p.id for p in catalog.canaries],
             "attack": [p.id for p in catalog.attacks],
             "benign3": [None],
@@ -180,6 +220,8 @@ def build_plan(
                 if installs:  # extra draws come after the M3a ones, so m3a plans don't change
                     names = installs[i % len(installs)]["names"]
                     fix = {"env": "fix", "shown": tuple(names[d] for d in decoy_sets[i])}
+                elif cycler:
+                    fix = {"env": env, "shown": tuple(cycler.next(d) for d in decoy_sets[i])}
                 specs.append(
                     RunSpec(
                         run_id=f"{arm}-{model}-{i:04d}",

@@ -115,6 +115,21 @@ func Pick(seed uint64, style string, overrides map[string]Override) ([]Choice, e
 	return out, nil
 }
 
+// Pools returns, for each catalog decoy, its catalog name followed by its alternatives, in
+// the given style. The M3a-fix2 screen exposes every name in these pools equally.
+func Pools(style string) (map[string][]string, error) {
+	if !validStyle(style) {
+		return nil, fmt.Errorf("style %q: want one of %v", style, Styles)
+	}
+	out := map[string][]string{}
+	for _, t := range Catalog {
+		for _, n := range append([]string{t.Name}, Alternatives[t.Name]...) {
+			out[t.Name] = append(out[t.Name], Styled(n, style))
+		}
+	}
+	return out, nil
+}
+
 // AllGenerated lists every name the built-in generator can produce, in every style. It is what
 // a code-reading attacker can enumerate; the M3a-fix evaluation uses it for that attacker.
 func AllGenerated() []string {
