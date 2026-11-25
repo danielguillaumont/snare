@@ -1,0 +1,236 @@
+// Command snare runs the Snare callback server and plants tripwires.
+//
+//	snare keygen                          print random keys for SNARE_KEY / SNARE_ADMIN_KEY
+//	snare serve                           run listeners (config from SNARE_* env vars)
+//	snare mint -kind K -label L           mint a token through the admin API
+//	snare events [-token ID]              list recent tripwire events
+//	snare plant repo|corpus <dir>         plant honey credentials / canary docs
+//	snare plant mcp -config F             write a decoy MCP server config
+//	snare decoy-mcp -config F             run the decoy MCP server on stdio
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"flag"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"text/tabwriter"
+	"time"
+
+	"github.com/danielguillaumont/snare/internal/admin"
+	"github.com/danielguillaumont/snare/internal/mcp"
+	"github.com/danielguillaumont/snare/internal/plant"
+	"github.com/danielguillaumont/snare/internal/server"
+)
+
+func main() {
+	if len(os.Args) < 2 {
+		usage()
+		os.Exit(2)
+	}
+	var err error
+	switch os.Args[1] {
+	case "keygen":
+		err = keygen()
+	case "serve":
+		err = serve()
+	case "mint":
+		err = mint(os.Args[2:])
+	case "events":
+		err = events(os.Args[2:])
+	case "plant":
+		err = plantCmd(os.Args[2:])
+	case "decoy-mcp":
+		err = decoyMCP(os.Args[2:])
+	default:
+		usage()
+		os.Exit(2)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "snare:", err)
+		os.Exit(1)
+	}
+}
+
+func usage() {
+	fmt.Fprint(os.Stderr, `usage:
+  snare keygen
+  snare serve
+  snare mint -kind K -label L [-memo M]
+  snare events [-token ID] [-limit N]
+  snare plant repo   [-dry-run] [-manifest F] <dir>
+  snare plant corpus [-dry-run] [-manifest F] [-with-instruction] <dir>
+  snare plant mcp    [-dry-run] [-manifest F] -config F [-name N] [-exclude a,b]
+  snare decoy-mcp -config F
+`)
+}
+
+func randHex(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
+}
+
+func keygen() error {
+	fmt.Printf("SNARE_KEY=%s\nSNARE_ADMIN_KEY=%s\nSNARE_WEBHOOK_SECRET=%s\n", randHex(32), randHex(24), randHex(24))
+	return nil
+}
+
+func serve() error {
+	cfg, err := server.FromEnv()
+	if err != nil {
+		return err
+	}
+	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	s, err := server.Start(cfg, log)
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	<-ctx.Done()
+	log.Info("shutting down")
+	sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	s.Shutdown(sctx)
+	return nil
+}
+
+func client() *admin.Client {
+	u := os.Getenv("SNARE_ADMIN_URL")
+	if u == "" {
+		u = "http://127.0.0.1:8081"
+	}
+	return &admin.Client{BaseURL: u, Key: os.Getenv("SNARE_ADMIN_KEY")}
+}
+
+func mint(args []string) error {
+	fs := flag.NewFlagSet("mint", flag.ExitOnError)
+	kind := fs.String("kind", "", "token kind: decoy_tool, honey_credential, canary_doc, canary_url, canary_instruction, other")
+	label := fs.String("label", "", "where this tripwire is planted (shown in alerts)")
+	memo := fs.String("memo", "", "optional notes")
+	_ = fs.Parse(args)
+	if !admin.Kinds[*kind] || *label == "" {
+		fs.Usage()
+		return fmt.Errorf("-kind and -label are required")
+	}
+	resp, err := client().Mint(*kind, *label, *memo)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("token:    %s\nid:       %s\n", resp.Token, resp.ID)
+	if resp.URL != "" {
+		fmt.Printf("url:      %s\n", resp.URL)
+	}
+	if resp.Hostname != "" {
+		fmt.Printf("hostname: %s\n", resp.Hostname)
+	}
+	return nil
+}
+
+func events(args []string) error {
+	fs := flag.NewFlagSet("events", flag.ExitOnError)
+	tok := fs.String("token", "", "filter by token id")
+	limit := fs.Int("limit", 50, "max events")
+	_ = fs.Parse(args)
+	evs, err := client().Events(*tok, *limit)
+	if err != nil {
+		return err
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "TIME\tCHANNEL\tTOKEN\tSOURCE\tDETAIL")
+	for _, e := range evs {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", e.At.Format(time.RFC3339), e.Channel, e.TokenID, e.SourceIP, e.Detail)
+	}
+	return tw.Flush()
+}
+
+func plantCmd(args []string) error {
+	if len(args) < 1 {
+		usage()
+		return fmt.Errorf("plant needs a target: repo, corpus or mcp")
+	}
+	target := args[0]
+	fs := flag.NewFlagSet("plant "+target, flag.ExitOnError)
+	dry := fs.Bool("dry-run", false, "print what would be written; mint and write nothing")
+	manifest := fs.String("manifest", "snare-planted.json", "manifest file (must be outside the planted directory)")
+	withInstr := fs.Bool("with-instruction", false, "corpus: also add a canary instruction (opt-in)")
+	config := fs.String("config", "", "mcp: path for the decoy-mcp config file")
+	name := fs.String("name", "internal-ops", "mcp: server name advertised to clients")
+	exclude := fs.String("exclude", "", "mcp: comma-separated decoys to skip (ones overlapping the agent's real job)")
+	_ = fs.Parse(args[1:])
+	opts := plant.Options{DryRun: *dry}
+	c := client()
+
+	var entries []plant.Entry
+	var err error
+	switch target {
+	case "repo", "corpus":
+		if fs.NArg() != 1 {
+			return fmt.Errorf("plant %s needs exactly one directory", target)
+		}
+		dir := fs.Arg(0)
+		if err := plant.CheckManifestOutside(*manifest, dir); err != nil {
+			return err
+		}
+		if target == "repo" {
+			entries, err = plant.Repo(c, dir, opts)
+		} else {
+			entries, err = plant.Corpus(c, dir, *withInstr, opts)
+		}
+	case "mcp":
+		var ex []string
+		for _, x := range strings.Split(*exclude, ",") {
+			if x = strings.TrimSpace(x); x != "" {
+				ex = append(ex, x)
+			}
+		}
+		exe, _ := os.Executable()
+		var snippet string
+		entries, snippet, err = plant.MCP(c, plant.MCPOptions{Options: opts, ConfigPath: *config, ServerName: *name, Exclude: ex, Command: exe})
+		if err == nil {
+			fmt.Println("Add this to your MCP client config (e.g. .mcp.json or claude_desktop_config.json):")
+			fmt.Println(snippet)
+		}
+	default:
+		return fmt.Errorf("unknown plant target %q (want repo, corpus or mcp)", target)
+	}
+	if err != nil {
+		return err
+	}
+	if *dry {
+		fmt.Println("dry run: nothing minted or written")
+		return nil
+	}
+	for _, e := range entries {
+		fmt.Printf("planted %-6s %s  (token %s)\n", e.Type, e.Label, e.TokenID)
+	}
+	if err := plant.AppendManifest(*manifest, entries); err != nil {
+		return fmt.Errorf("planted, but writing manifest failed: %w", err)
+	}
+	fmt.Printf("manifest: %s (keep it out of the planted repo/corpus)\n", *manifest)
+	return nil
+}
+
+func decoyMCP(args []string) error {
+	fs := flag.NewFlagSet("decoy-mcp", flag.ExitOnError)
+	config := fs.String("config", "", "decoy-mcp config written by `snare plant mcp`")
+	_ = fs.Parse(args)
+	cfg, err := mcp.LoadConfig(*config)
+	if err != nil {
+		return err
+	}
+	// stdout carries the protocol; logs go to stderr only.
+	s := &mcp.Server{Cfg: cfg, Log: slog.New(slog.NewTextHandler(os.Stderr, nil))}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return s.Serve(ctx, os.Stdin, os.Stdout)
+}

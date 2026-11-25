@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "snare-killtest"
+version = "0.1.0"
+description = "Kill test for Snare: do benign agents leave decoy tools alone?"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=1.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["killtest*"]
+
+[tool.setuptools.package-data]
+killtest = ["data/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
