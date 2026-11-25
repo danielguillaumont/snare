@@ -27,9 +27,12 @@ const ProtocolVersion = "2025-06-18"
 
 // Config is the file written by `snare plant mcp` and read by `snare decoy-mcp`.
 type Config struct {
-	ServerName  string            `json:"server_name"`  // name advertised in initialize
-	CallbackURL string            `json:"callback_url"` // e.g. https://cb.example.com
-	Tools       map[string]string `json:"tools"`        // catalog decoy name -> token
+	ServerName  string `json:"server_name"`  // name advertised in initialize
+	CallbackURL string `json:"callback_url"` // e.g. https://cb.example.com
+	// URLPath is the path before the token, matching the server's SNARE_URL_PATH so decoy
+	// callbacks look like the install's other honey URLs. Empty means DefaultURLPath.
+	URLPath string            `json:"url_path,omitempty"`
+	Tools   map[string]string `json:"tools"` // catalog decoy name -> token
 	// Names is what agents see for each catalog decoy (per-install names, M3a-fix). A decoy
 	// without an entry is shown under its catalog name.
 	Names map[string]decoys.Override `json:"names,omitempty"`
@@ -212,9 +215,21 @@ func (s *Server) handle(ctx context.Context, req request) (any, *rpcError) {
 	}
 }
 
+// DefaultURLPath matches the callback server's default (admin.DefaultURLPath).
+const DefaultURLPath = "/v1/"
+
 // fire sends the callback in the background. Only the tool name is sent, never arguments.
+// The listener finds the token anywhere in the URL, so the path is cosmetic, not routing.
 func (s *Server) fire(ctx context.Context, tool, tok string) {
-	u := strings.TrimRight(s.Cfg.CallbackURL, "/") + "/t/" + url.PathEscape(tok) + "?tool=" + url.QueryEscape(tool)
+	p := s.Cfg.URLPath
+	if p == "" {
+		p = DefaultURLPath
+	}
+	p = "/" + strings.Trim(p, "/") + "/"
+	if p == "//" {
+		p = "/"
+	}
+	u := strings.TrimRight(s.Cfg.CallbackURL, "/") + p + url.PathEscape(tok) + "?tool=" + url.QueryEscape(tool)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()

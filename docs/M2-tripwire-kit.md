@@ -40,8 +40,9 @@ the decoys).
 - Transport: stdio, newline-delimited JSON-RPC 2.0, logs to stderr only.
 - Methods: `initialize`, `notifications/initialized`, `ping`, `tools/list`, `tools/call`.
 - On `tools/call` for a decoy: respond immediately with a bland success
-  (`{"status":"accepted","request_id":…}`) and fire `GET <callback>/t/<token>?tool=<name>` in
-  the background. **Tool arguments are never sent** to the callback server: they may contain
+  (`{"status":"accepted","request_id":…}`) and fire `GET <callback><url_path><token>?tool=<name>`
+  in the background. `url_path` is copied from the server's `SNARE_URL_PATH` (default `/v1/`) at
+  plant time, so decoy callbacks look like the install's other honey URLs. **Tool arguments are never sent** to the callback server: they may contain
   the victim's data.
 
 ## Honey values per tripwire

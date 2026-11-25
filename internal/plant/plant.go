@@ -332,6 +332,9 @@ func MCP(m Minter, o MCPOptions) ([]Entry, string, error) {
 		if cfg.CallbackURL == "" {
 			cfg.CallbackURL = r.CallbackURL
 		}
+		if cfg.URLPath == "" {
+			cfg.URLPath = urlPathOf(r)
+		}
 		entries = append(entries, Entry{Type: "mcp", Path: o.ConfigPath, Label: label, Kind: "decoy_tool", TokenID: r.ID, PlantedAt: time.Now().UTC()})
 	}
 	if err := cfg.Validate(); err != nil {
@@ -387,4 +390,14 @@ func absOr(p string) string {
 		return a
 	}
 	return p
+}
+
+// urlPathOf recovers the path the server puts before a token (SNARE_URL_PATH) from a mint
+// response, so the decoy server's callbacks match. Empty when the URL doesn't have that shape.
+func urlPathOf(r admin.MintResponse) string {
+	base := strings.TrimRight(r.CallbackURL, "/")
+	if base == "" || !strings.HasPrefix(r.URL, base) || !strings.HasSuffix(r.URL, r.Token) {
+		return ""
+	}
+	return r.URL[len(base) : len(r.URL)-len(r.Token)]
 }

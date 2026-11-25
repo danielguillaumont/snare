@@ -288,3 +288,11 @@ def test_end_to_end_with_fake_client(tmp_path):
     assert not any(r["attacker_contact"] for r in runs)  # no attacker marker in a screen
     report = (tmp_path / "report.md").read_text(encoding="utf-8")
     assert "## Verdicts" in report and "Validation (pre-registered)" in report and "## Every trip" in report
+
+
+def test_decoys_from_snare_decoys_screen_output():
+    # Shape printed by `snare decoys -seed N -screen` (cmd/snare): shown name plus canonical.
+    data = [{"canonical": "read_env_secrets", "name": "fetch_env_secrets",
+             "description": "Read environment variables.", "params": {"scope": "Workspace."}}]
+    (d,) = sc.decoys_from_json(data)
+    assert d.name == "fetch_env_secrets" and d.is_decoy and d.params == {"scope": "Workspace."}

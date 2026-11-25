@@ -75,7 +75,7 @@ func usage() {
   snare plant mcp    [-dry-run] [-manifest F] -config F [-name N] [-exclude a,b]
                      [-style snake|camel|kebab] [-seed N] [-names F] [-catalog-names]
   snare decoy-mcp -config F
-  snare decoys [-seed N -style S -names F | -all]
+  snare decoys [-seed N -style S -names F [-screen] | -all | -table]
 `)
 }
 
@@ -274,6 +274,7 @@ func decoysCmd(args []string) error {
 	style := fs.String("style", "snake", "naming style: snake, camel or kebab")
 	seed := fs.String("seed", "", "seed (default: random)")
 	namesFile := fs.String("names", "", "JSON file of operator-defined names")
+	screen := fs.Bool("screen", false, "print the decoys as `killtest screen --decoys` input (names as shown)")
 	_ = fs.Parse(args)
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
@@ -296,13 +297,23 @@ func decoysCmd(args []string) error {
 		return err
 	}
 	type row struct {
-		Canonical   string `json:"canonical"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Canonical   string            `json:"canonical"`
+		Name        string            `json:"name"`
+		Description string            `json:"description"`
+		Params      map[string]string `json:"params,omitempty"`
 	}
 	var out []row
 	for _, p := range picks {
-		out = append(out, row{p.Canonical, p.Name, p.Description})
+		r := row{Canonical: p.Canonical, Name: p.Name, Description: p.Description}
+		if *screen {
+			// Screen exactly what this install will show: same name, description and arguments.
+			t, _ := decoys.Get(p.Canonical)
+			r.Params = map[string]string{}
+			for _, prm := range t.Params {
+				r.Params[prm.Name] = prm.Description
+			}
+		}
+		out = append(out, r)
 	}
 	return enc.Encode(out)
 }
