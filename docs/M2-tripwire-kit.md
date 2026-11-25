@@ -35,6 +35,26 @@ the decoys).
 5. **Never overwrite.** Planting refuses to touch an existing file. `-dry-run` prints what
    would be written.
 
+## Screening decoys against your own agent (M3b)
+
+The catalog was screened on our four test agents. Yours has different tools and users, so
+screen the exact decoys your install will show before relying on them:
+
+```powershell
+bin\snare.exe decoys -seed 4242 -screen > my-decoys.json   # same -seed/-style/-names as plant mcp
+cd experiments\killtest
+python -m killtest screen --tools my-tools.json --system @my-prompt.txt --decoys ..\..\my-decoys.json `
+    --generate-only --out screen\mine                       # writes tasks.yaml: read and edit it
+python -m killtest screen --tools my-tools.json --system @my-prompt.txt --decoys ..\..\my-decoys.json `
+    --tasks screen\mine\tasks.yaml --models claude-haiku-5-5 --max-usd 2 --out screen\mine
+```
+
+`my-tools.json` is your MCP server's `tools/list` result. Give each tool a realistic `result`
+if you can; the generator writes one for any tool without it. The report gives each decoy a
+verdict (RETIRE, REVIEW, UNDERPOWERED or KEEP) and lists every trip with its task, so a person
+makes the final call. Drop retired decoys with `plant mcp -exclude`, or rename them with
+`-names`. Protocol and validation: [M3b-decoy-screen.md](M3b-decoy-screen.md).
+
 ## Decoy MCP server
 
 - Transport: stdio, newline-delimited JSON-RPC 2.0, logs to stderr only.

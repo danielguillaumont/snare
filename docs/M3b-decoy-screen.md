@@ -131,3 +131,7 @@ Project total so far is about $15 of the $50 budget.
 - 2026-11-25, before any run: corrected the worked numbers under "Why a lower bound of 1%".
   The unit tests computed them exactly: 4 trips at about 130 exposures (not 5), and a 1.4% false
   retirement rate at 0.7% (not 0.3%). The rule and the criteria are unchanged.
+- 2026-11-25: generated validation tasks frozen (cf6ce34, $0.32). The run used one invocation
+  with both models and a combined $6 cap instead of the separate $1 and $5 caps, so a cut-off
+  would have stayed unbiased across models (the execution order is shuffled). Nothing was
+  skipped. Validation run ($3.70): V1, V2 and V3 pass. Results: [results-m3b.md](results-m3b.md).
