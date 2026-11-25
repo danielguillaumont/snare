@@ -80,6 +80,33 @@ func TestHTTPTokenInHost(t *testing.T) {
 	}
 }
 
+func TestHTTPStolenKeyInHeaderIsItsOwnHit(t *testing.T) {
+	s := newSigner(t)
+	r := &rec{}
+	h := &HTTP{Signer: s, Recorder: r, Log: quiet}
+	urlTok, urlID, _ := s.Mint()
+	keyTok, keyID, _ := s.Mint()
+	req := httptest.NewRequest("GET", "/t/"+urlTok+"/v1/payouts", nil)
+	req.Header.Set("Authorization", "Bearer "+keyTok)
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	got := r.all()
+	if len(got) != 2 || got[0].id != urlID || got[1].id != keyID || !strings.Contains(got[1].detail, "via=credential-header") {
+		t.Fatalf("hits: %+v", got)
+	}
+	if strings.Contains(got[1].detail, keyTok) {
+		t.Fatal("header value must not be stored")
+	}
+	// Key alone, to any path on the callback host.
+	r2 := &rec{}
+	h2 := &HTTP{Signer: s, Recorder: r2, Log: quiet}
+	req = httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-Api-Key", keyTok)
+	h2.ServeHTTP(httptest.NewRecorder(), req)
+	if g := r2.all(); len(g) != 1 || g[0].id != keyID {
+		t.Fatalf("header-only hits: %+v", g)
+	}
+}
+
 func TestHTTPRateLimitPerIP(t *testing.T) {
 	s := newSigner(t)
 	h := &HTTP{Signer: s, Recorder: &rec{}, Log: quiet, PerIPRate: 1, PerIPBurst: 3}

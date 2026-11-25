@@ -30,11 +30,16 @@ type Config struct {
 	Zone          string
 	AnswerIP      net.IP
 	PublicURL     string
+	URLPath       string // path before the token in minted URLs (SNARE_URL_PATH, default /v1/)
 	DBPath        string
 	WebhookURL    string
 	WebhookSecret []byte
 	TrustProxy    bool
 	DedupWindow   time.Duration
+	// Token format for newly minted tokens (docs/M3a-fix-antifingerprint.md). Empty prefix and
+	// b32 by default. Old tokens verify whatever this is set to.
+	TokenPrefix   string
+	TokenEncoding token.Encoding
 }
 
 // FromEnv reads the SNARE_* variables documented in docs/M1-callback.md.
@@ -62,10 +67,13 @@ func FromEnv() (Config, error) {
 		Zone:          os.Getenv("SNARE_ZONE"),
 		AnswerIP:      net.ParseIP(get("SNARE_ANSWER_IP", "127.0.0.1")),
 		PublicURL:     os.Getenv("SNARE_PUBLIC_URL"),
+		URLPath:       os.Getenv("SNARE_URL_PATH"),
 		DBPath:        get("SNARE_DB", "snare.db"),
 		WebhookURL:    os.Getenv("SNARE_WEBHOOK_URL"),
 		WebhookSecret: []byte(os.Getenv("SNARE_WEBHOOK_SECRET")),
 		TrustProxy:    os.Getenv("SNARE_TRUST_PROXY") == "1",
+		TokenPrefix:   os.Getenv("SNARE_TOKEN_PREFIX"),
+		TokenEncoding: token.Encoding(get("SNARE_TOKEN_ENCODING", string(token.B32))),
 	}
 	if c.DNSAddr != "" && c.Zone == "" {
 		return Config{}, errors.New("SNARE_ZONE is required when SNARE_DNS_ADDR is set")
@@ -91,7 +99,11 @@ type Server struct {
 
 // Start opens the store and starts all listeners. It returns once they are accepting.
 func Start(cfg Config, log *slog.Logger) (*Server, error) {
-	signer, err := token.NewSigner(cfg.Key)
+	base, err := token.NewSigner(cfg.Key)
+	if err != nil {
+		return nil, err
+	}
+	signer, err := base.WithFormat(cfg.TokenPrefix, cfg.TokenEncoding)
 	if err != nil {
 		return nil, err
 	}
@@ -130,22 +142,17 @@ func Start(cfg Config, log *slog.Logger) (*Server, error) {
 		return cleanup(fmt.Errorf("admin listen: %w", err))
 	}
 	s.AdminAddr = adminLn.Addr().String()
-	api := &admin.API{Key: cfg.AdminKey, Signer: signer, Store: st, PublicURL: cfg.PublicURL, Zone: cfg.Zone, Log: log}
+	api := &admin.API{Key: cfg.AdminKey, Signer: signer, Store: st, PublicURL: cfg.PublicURL, URLPath: cfg.URLPath, Zone: cfg.Zone, Log: log}
 	s.adminSrv = &http.Server{Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second}
 	go s.serveHTTP(s.adminSrv, adminLn, "admin")
 
 	if cfg.DNSAddr != "" {
 		h := &listener.DNS{Zone: cfg.Zone, AnswerIP: cfg.AnswerIP, Signer: signer, Recorder: pipe, Log: log}
-		pc, err := net.ListenPacket("udp", cfg.DNSAddr)
+		pc, tl, err := listenDNS(cfg.DNSAddr)
 		if err != nil {
-			return cleanup(fmt.Errorf("dns udp listen: %w", err))
+			return cleanup(err)
 		}
 		s.DNSAddr = pc.LocalAddr().String()
-		tl, err := net.Listen("tcp", s.DNSAddr)
-		if err != nil {
-			pc.Close()
-			return cleanup(fmt.Errorf("dns tcp listen: %w", err))
-		}
 		started := make(chan struct{}, 2)
 		notify := func() { started <- struct{}{} }
 		s.dnsUDP = &dns.Server{PacketConn: pc, Handler: h, NotifyStartedFunc: notify}
@@ -158,6 +165,32 @@ func Start(cfg Config, log *slog.Logger) (*Server, error) {
 
 	log.Info("snare started", "callback", s.HTTPAddr, "admin", s.AdminAddr, "dns", s.DNSAddr, "zone", cfg.Zone, "webhook", cfg.WebhookURL != "")
 	return s, nil
+}
+
+// listenDNS binds UDP and TCP on the same address. With port 0 the OS picks the UDP port, and
+// the same TCP port can be unavailable (Windows reserves port ranges), so retry a few times.
+func listenDNS(addr string) (net.PacketConn, net.Listener, error) {
+	_, port, _ := net.SplitHostPort(addr)
+	attempts := 1
+	if port == "0" {
+		// Ephemeral port: bind TCP first (Windows reserves TCP port ranges that a UDP-chosen
+		// port can fall into), then UDP on the same port; retry if that one is taken.
+		attempts = 20
+	}
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		tl, err := net.Listen("tcp", addr)
+		if err != nil {
+			return nil, nil, fmt.Errorf("dns tcp listen: %w", err)
+		}
+		pc, err := net.ListenPacket("udp", tl.Addr().String())
+		if err == nil {
+			return pc, tl, nil
+		}
+		tl.Close()
+		lastErr = fmt.Errorf("dns udp listen: %w", err)
+	}
+	return nil, nil, lastErr
 }
 
 func (s *Server) serveHTTP(srv *http.Server, ln net.Listener, name string) {

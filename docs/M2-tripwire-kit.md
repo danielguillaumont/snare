@@ -29,7 +29,8 @@ the decoys).
 3. **Canary instructions are opt-in** (`-with-instruction`). M0 measured that current Claude
    models acted on planted instructions in < 1% of runs, so links, images and credentials are
    the primary signal in documents, not instructions.
-4. **Never imitate real provider key formats.** Honey values are Snare tokens (`snr…`).
+4. **Never imitate real provider key formats.** Honey values are Snare tokens (v2: random
+   base32 or hex, with an optional prefix that can't be a provider's; v1: `snr…`).
    They look like opaque secrets, not like any vendor's keys.
 5. **Never overwrite.** Planting refuses to touch an existing file. `-dry-run` prints what
    would be written.
@@ -47,8 +48,17 @@ the decoys).
 
 | Value | Form | Channel |
 |---|---|---|
-| Base URL | `<public_url>/t/<token>` | HTTP |
-| API key / password | `<token>` | HTTP (if sent to the base URL) |
+| Base URL | `<public_url>/v1/<token>` | HTTP |
+| API key / password | `<token>` (its own token) | HTTP (in a credential header or URL on the callback host) |
 | Host | `<token>.<zone>` | DNS |
 
-The repo file and corpus doc each carry one token, so attribution is per file.
+**M3a-fix:** every field gets its **own** token (labels end in `base_url`, `api_key`,
+`db_host`, `db_password`), so an alert says which value was used, and the planted values no
+longer repeat one token across fields, which M3a's agents noticed.
+
+**Decoy names (M3a-fix):** `plant mcp` shows each decoy under a per-install name picked from
+curated alternatives (`-style snake|camel|kebab`, `-seed N`). `-names FILE` takes your own
+`{"catalog_name": {"name": "...", "description": "..."}}`; `-catalog-names` keeps the public
+names. Generated names come from public code, so an attacker who reads it can enumerate them
+(see [results-m3a-fix.md](results-m3a-fix.md)); only your own names are secret. The variant
+names have not yet passed a per-name false-positive screen.

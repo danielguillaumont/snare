@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import load_catalog
-from .plan import ARMS, M0_ARMS, M3_ARMS, build_plan
+from .plan import ARMS, ENVS, M0_ARMS, M3_ARMS, build_plan, load_fix_names
 from .pricing import PRICES
 
 DEFAULT_MODELS = ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"]
@@ -54,14 +54,17 @@ def cmd_run(a: argparse.Namespace) -> int:
         from .policies import POLICIES, PolicyClient, policy_models, public_decoy_names
 
         models = policy_models(list(POLICIES) if a.policy == "all" else [a.policy])
-        client = PolicyClient(public_decoy_names(DATA_DIR))
+        client = PolicyClient(public_decoy_names(DATA_DIR), frozenset(load_fix_names()["all_generated"]))
         a.dry_run = True  # no API calls; results go to a -dry directory unless --out is given
     elif a.dry_run:
         from .fake import FakeClient
 
         models = ["fake"]
         content_tools = frozenset(s.content_tool for s in catalog.scenarios.values())
-        client = FakeClient(catalog.decoy_names, content_tools, catalog.attacker_marker)
+        decoy_names = catalog.decoy_names
+        if a.env == "fix":
+            decoy_names = decoy_names | frozenset(load_fix_names()["all_generated"])
+        client = FakeClient(decoy_names, content_tools, catalog.attacker_marker)
     else:
         models = a.models or DEFAULT_MODELS
         unknown = [m for m in models if m not in PRICES or m == "fake"]
@@ -77,7 +80,7 @@ def cmd_run(a: argparse.Namespace) -> int:
         # No server-side fallback on purpose: a fallback would mix models within one model's results.
         client = anthropic.Anthropic(max_retries=4)
 
-    specs = build_plan(catalog, arms, models, a.runs, a.seed)
+    specs = build_plan(catalog, arms, models, a.runs, a.seed, env=a.env)
     est = estimate_plan_cost(specs)
     print(f"{len(specs)} runs planned ({', '.join(arms)} x {', '.join(models)} x {a.runs}); "
           f"rough estimate ${est:.2f}; hard ceiling ${a.max_usd:.2f}")
@@ -90,7 +93,7 @@ def cmd_run(a: argparse.Namespace) -> int:
     out_dir = Path(a.out) if a.out else RESULTS_ROOT / f"{stamp}{'-dry' if a.dry_run else ''}"
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "plan.json").write_text(
-        json.dumps({"seed": a.seed, "effort": a.effort, "max_usd": a.max_usd, "specs": [s.to_dict() for s in specs]}, indent=1),
+        json.dumps({"seed": a.seed, "env": a.env, "effort": a.effort, "max_usd": a.max_usd, "specs": [s.to_dict() for s in specs]}, indent=1),
         encoding="utf-8",
     )
 
@@ -138,7 +141,9 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--seed", type=int, default=7)
     r.add_argument("--out", help="output directory (default results/<timestamp>)")
     r.add_argument("--dry-run", action="store_true", help="use the scripted fake model; no API calls")
-    r.add_argument("--policy", choices=["greedy", "files_only", "targeted", "snare_aware", "all"],
+    r.add_argument("--env", choices=list(ENVS), default="m3a",
+                   help="m3a = the M3a environment; fix = M3a-fix (v2 honey, varied secrets, per-install decoy names)")
+    r.add_argument("--policy", choices=["greedy", "files_only", "targeted", "snare_aware", "code_reader", "all"],
                    help="M3: run a scripted attacker policy instead of a model (no API calls, $0)")
     r.add_argument("--plan-only", action="store_true", help="print the plan and estimate, then exit")
     r.set_defaults(fn=cmd_run)

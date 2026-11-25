@@ -2,6 +2,8 @@ package token
 
 import (
 	"bytes"
+	"crypto/rand"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -15,25 +17,78 @@ func signer(t *testing.T, b byte) *Signer {
 	return s
 }
 
-func TestMintVerifyRoundTrip(t *testing.T) {
-	s := signer(t, 1)
-	tok, id, err := s.Mint()
+func format(t *testing.T, s *Signer, prefix string, enc Encoding) *Signer {
+	t.Helper()
+	f, err := s.WithFormat(prefix, enc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tok) != Length || len(tok) > 63 {
-		t.Fatalf("length %d", len(tok))
+	return f
+}
+
+// mintV1 builds a pre-v2 token, as planted before M3a-fix.
+func mintV1(s *Signer) (string, string) {
+	raw := make([]byte, idBytes)
+	_, _ = rand.Read(raw)
+	return v1Prefix + idString(raw) + strings.ToLower(b32.EncodeToString(s.mac(v1Domain, raw))), idString(raw)
+}
+
+func TestFormats(t *testing.T) {
+	base := signer(t, 1)
+	cases := []struct {
+		s     *Signer
+		shape *regexp.Regexp
+	}{
+		{base, regexp.MustCompile(`^[a-z2-7]{32}$`)},
+		{format(t, base, "", Hex), regexp.MustCompile(`^[0-9a-f]{40}$`)},
+		{format(t, base, "nw-", B32), regexp.MustCompile(`^nw-[a-z2-7]{32}$`)},
+		{format(t, base, "acme", Hex), regexp.MustCompile(`^acme[0-9a-f]{40}$`)},
 	}
-	if tok != strings.ToLower(tok) {
-		t.Fatal("token must be lowercase for DNS")
+	for _, c := range cases {
+		tok, id, err := c.s.Mint()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !c.shape.MatchString(tok) || len(tok) > 63 {
+			t.Errorf("token %q has the wrong shape", tok)
+		}
+		got, err := c.s.Verify(tok)
+		if err != nil || got != id {
+			t.Errorf("verify %q: %v %q != %q", tok, err, got, id)
+		}
+		if _, err := c.s.Verify(strings.ToUpper(tok)); err != nil {
+			t.Errorf("uppercase verify %q: %v", tok, err)
+		}
+		// Changing the install's format later must not break planted tokens.
+		if got, ok := base.Find("GET /t/" + tok + "/x"); !ok || got != id {
+			t.Errorf("base signer can't Find %q", tok)
+		}
 	}
-	got, err := s.Verify(tok)
-	if err != nil || got != id {
-		t.Fatalf("verify: %v %q != %q", err, got, id)
+}
+
+func TestDefaultHasNoFixedPrefix(t *testing.T) {
+	s := signer(t, 1)
+	first := map[string]bool{}
+	for i := 0; i < 200; i++ {
+		tok, _, _ := s.Mint()
+		first[tok[:3]] = true
 	}
-	// DNS may hand us any case.
-	if _, err := s.Verify(strings.ToUpper(tok)); err != nil {
-		t.Fatalf("uppercase verify: %v", err)
+	if len(first) < 150 {
+		t.Fatalf("only %d distinct 3-char starts in 200 tokens: looks like a fixed prefix", len(first))
+	}
+}
+
+func TestV1StillVerifies(t *testing.T) {
+	s := signer(t, 1)
+	tok, id := mintV1(s)
+	if got, err := s.Verify(tok); err != nil || got != id {
+		t.Fatalf("v1 verify: %v", err)
+	}
+	if got, ok := s.Find(tok + ".cb.example.com."); !ok || got != id {
+		t.Fatal("v1 Find")
+	}
+	if _, err := signer(t, 2).Verify(tok); err != ErrBadMAC {
+		t.Fatalf("v1 wrong key: %v", err)
 	}
 }
 
@@ -56,10 +111,27 @@ func TestTamperAndWrongKeyRejected(t *testing.T) {
 
 func TestMalformed(t *testing.T) {
 	s := signer(t, 1)
-	for _, in := range []string{"", "snr", "abc" + strings.Repeat("a", 32), "snr" + strings.Repeat("1", 32), "snr" + strings.Repeat("a", 33)} {
+	for _, in := range []string{"", "snr", strings.Repeat("a", 31), strings.Repeat("1", 32), strings.Repeat("g", 40), strings.Repeat("a", 33)} {
 		if _, err := s.Verify(in); err != ErrMalformed {
 			t.Errorf("%q: got %v", in, err)
 		}
+	}
+}
+
+func TestPrefixValidation(t *testing.T) {
+	s := signer(t, 1)
+	for _, bad := range []string{"sk-", "sk_live_", "AKIA", "ghp_", "xoxb-", "aiza", "-x", "has space", "UPPER_", "snr", strings.Repeat("a", 13), "a_b"} {
+		if _, err := s.WithFormat(bad, B32); err == nil {
+			t.Errorf("prefix %q accepted", bad)
+		}
+	}
+	for _, ok := range []string{"", "nw-", "acme", "int-7"} {
+		if _, err := s.WithFormat(ok, B32); err != nil {
+			t.Errorf("prefix %q rejected: %v", ok, err)
+		}
+	}
+	if _, err := s.WithFormat("", "b64"); err != ErrEncoding {
+		t.Errorf("bad encoding: %v", err)
 	}
 }
 
@@ -83,6 +155,15 @@ func TestFindSkipsForgedCandidates(t *testing.T) {
 	}
 }
 
+func TestFindEmbeddedInLongerRun(t *testing.T) {
+	s := format(t, signer(t, 1), "nwk", B32)
+	tok, id, _ := s.Mint()
+	// Prefix glued to the body, inside a hostname label: the window scan finds it.
+	if got, ok := signer(t, 1).Find(tok + ".cb.example.com"); !ok || got != id {
+		t.Fatal("prefixed token not found by window scan")
+	}
+}
+
 func TestMintIsUnique(t *testing.T) {
 	s := signer(t, 1)
 	seen := map[string]bool{}
@@ -98,8 +179,11 @@ func TestMintIsUnique(t *testing.T) {
 func FuzzVerifyNeverPanics(f *testing.F) {
 	s, _ := NewSigner(bytes.Repeat([]byte{1}, 32))
 	tok, _, _ := s.Mint()
+	v1, _ := mintV1(s)
 	f.Add(tok)
+	f.Add(v1)
 	f.Add("snr" + strings.Repeat("7", 32))
+	f.Add(strings.Repeat("ab", 30))
 	f.Fuzz(func(t *testing.T, in string) {
 		_, _ = s.Verify(in)
 		_, _ = s.Find(in)

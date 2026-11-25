@@ -24,8 +24,11 @@ type API struct {
 	Signer    *token.Signer
 	Store     *store.Store
 	PublicURL string // e.g. https://cb.example.com
-	Zone      string // e.g. cb.example.com.
-	Log       *slog.Logger
+	// URLPath sits between PublicURL and the token in minted URLs (default "/v1/"). M3a showed a
+	// fixed, Snare-specific path ("/t/") is a fingerprint, so it is generic and configurable.
+	URLPath string
+	Zone    string // e.g. cb.example.com.
+	Log     *slog.Logger
 }
 
 type MintRequest struct {
@@ -39,6 +42,21 @@ type MintResponse struct {
 	Token    string `json:"token"`
 	URL      string `json:"url,omitempty"`
 	Hostname string `json:"hostname,omitempty"`
+	// CallbackURL is the server's public base URL: where tools such as the decoy MCP server
+	// report a hit. Never planted where an agent can see it.
+	CallbackURL string `json:"callback_url,omitempty"`
+}
+
+// DefaultURLPath is used when API.URLPath is empty.
+const DefaultURLPath = "/v1/"
+
+// NormalizeURLPath returns p as "/seg/.../" (leading and trailing slash), or the default.
+func NormalizeURLPath(p string) string {
+	p = strings.Trim(p, "/")
+	if p == "" {
+		return DefaultURLPath
+	}
+	return "/" + p + "/"
 }
 
 func (a *API) Handler() http.Handler {
@@ -87,7 +105,9 @@ func (a *API) mint(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := MintResponse{ID: id, Token: tok}
 	if a.PublicURL != "" {
-		resp.URL = strings.TrimRight(a.PublicURL, "/") + "/t/" + tok
+		base := strings.TrimRight(a.PublicURL, "/")
+		resp.URL = base + NormalizeURLPath(a.URLPath) + tok
+		resp.CallbackURL = base
 	}
 	if a.Zone != "" {
 		resp.Hostname = tok + "." + strings.TrimSuffix(a.Zone, ".")

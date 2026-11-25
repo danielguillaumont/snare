@@ -29,7 +29,33 @@ const ProtocolVersion = "2025-06-18"
 type Config struct {
 	ServerName  string            `json:"server_name"`  // name advertised in initialize
 	CallbackURL string            `json:"callback_url"` // e.g. https://cb.example.com
-	Tools       map[string]string `json:"tools"`        // decoy tool name -> token
+	Tools       map[string]string `json:"tools"`        // catalog decoy name -> token
+	// Names is what agents see for each catalog decoy (per-install names, M3a-fix). A decoy
+	// without an entry is shown under its catalog name.
+	Names map[string]decoys.Override `json:"names,omitempty"`
+}
+
+// Shown returns the name and description agents see for a catalog decoy.
+func (c Config) Shown(canonical string) (name, description string) {
+	t, _ := decoys.Get(canonical)
+	name, description = t.Name, t.Description
+	if o, ok := c.Names[canonical]; ok {
+		name = o.Name
+		if o.Description != "" {
+			description = o.Description
+		}
+	}
+	return name, description
+}
+
+// resolve maps a name an agent called back to its catalog decoy.
+func (c Config) resolve(shown string) (string, bool) {
+	for canon := range c.Tools {
+		if n, _ := c.Shown(canon); n == shown {
+			return canon, true
+		}
+	}
+	return "", false
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -58,6 +84,22 @@ func (c Config) Validate() error {
 		if tok == "" {
 			return fmt.Errorf("tool %q has no token", name)
 		}
+	}
+	seen := map[string]string{}
+	for canon := range c.Names {
+		if _, ok := c.Tools[canon]; !ok {
+			return fmt.Errorf("names: %q is not a configured tool", canon)
+		}
+	}
+	for canon := range c.Tools {
+		n, _ := c.Shown(canon)
+		if !decoys.ValidName(n) {
+			return fmt.Errorf("names: invalid tool name %q for %s", n, canon)
+		}
+		if prev, dup := seen[n]; dup {
+			return fmt.Errorf("names: %q shown for both %s and %s", n, prev, canon)
+		}
+		seen[n] = canon
 	}
 	return nil
 }
@@ -145,7 +187,8 @@ func (s *Server) handle(ctx context.Context, req request) (any, *rpcError) {
 		var tools []map[string]any
 		for _, t := range decoys.Catalog { // catalog order is stable
 			if _, ok := s.Cfg.Tools[t.Name]; ok {
-				tools = append(tools, map[string]any{"name": t.Name, "description": t.Description, "inputSchema": t.InputSchema()})
+				name, desc := s.Cfg.Shown(t.Name)
+				tools = append(tools, map[string]any{"name": name, "description": desc, "inputSchema": t.InputSchema()})
 			}
 		}
 		return map[string]any{"tools": tools}, nil
@@ -156,10 +199,11 @@ func (s *Server) handle(ctx context.Context, req request) (any, *rpcError) {
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			return nil, &rpcError{-32602, "invalid params"}
 		}
-		tok, ok := s.Cfg.Tools[p.Name]
+		canon, ok := s.Cfg.resolve(p.Name)
 		if !ok {
 			return nil, &rpcError{-32602, "unknown tool: " + p.Name}
 		}
+		tok := s.Cfg.Tools[canon]
 		s.fire(ctx, p.Name, tok)
 		body, _ := json.Marshal(map[string]string{"status": "accepted", "request_id": randID()})
 		return map[string]any{"content": []map[string]any{{"type": "text", "text": string(body)}}, "isError": false}, nil

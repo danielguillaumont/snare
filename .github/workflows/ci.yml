@@ -34,3 +34,4 @@ jobs:
       # Offline fake model: exercises the full pipeline with no API key and $0 spend.
       - run: python -m killtest run --dry-run --arm all --runs 40
       - run: python -m killtest run --dry-run --arm m3 --runs 40
+      - run: python -m killtest run --dry-run --arm m3 --env fix --runs 40

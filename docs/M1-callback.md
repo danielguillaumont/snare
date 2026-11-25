@@ -17,26 +17,36 @@ end in < 5 s, covered by tests.
 
 ## Token format
 
+**v2 (current, M3a-fix):**
+
 ```
-snr<id><mac>      all lowercase base32 (RFC 4648 alphabet, no padding)
-id  = 10 random bytes   (80 bits: unguessable, collision-safe)
-mac = first 10 bytes of HMAC-SHA256(server_key, "snare/v1|" || id)
+<prefix><encode(id || mac)>
+id     = 10 random bytes   (80 bits: unguessable, collision-safe)
+mac    = first 10 bytes of HMAC-SHA256(server_key, "snare/v2|" || id)
+encode = b32 (32 lowercase base32 chars, default) or hex (40 lowercase hex chars)
+prefix = empty by default; SNARE_TOKEN_PREFIX sets 1-12 chars of [a-z0-9-]
 ```
 
-- 3 + 16 + 16 = **35 characters**: fits one DNS label (≤ 63), safe in URLs, env files and
-  JSON, and case-insensitive (DNS lowercases labels).
-- The MAC lets the listeners drop scanner noise and forged hits **before** touching the
-  database. Verification is constant-time.
-- `snr` prefix makes Snare tokens recognizable to Snare and to secret scanners, which is
-  deliberate: we never imitate real provider key formats (CLAUDE.md rule).
-- Key rotation: the MAC is versioned by the `snare/v1|` domain string; a v2 key can verify
-  in parallel later.
+- **No fixed prefix by default.** M3a showed the old `snr` prefix let an attacker who had read
+  the code drop every honey value ([results-m3a.md](results-m3a.md)). A v2 token looks like
+  any other random secret; only the server key can check the MAC.
+- The optional prefix is checked against real provider prefixes (`sk-`, `AKIA`, `ghp_`, `xox`,
+  `AIza`, …) and `snr`, so honey values still never imitate a real provider's format.
+- `SNARE_TOKEN_ENCODING=hex` gives 40 hex characters. Both fit one DNS label (≤ 63) and are
+  case-insensitive.
+- **Finding tokens without a prefix:** the listeners scan runs of encoding characters and check
+  token-length windows by MAC, capped at 256 MAC checks per input, so junk traffic stays cheap.
+  The MAC still drops scanner noise and forged hits **before** the database. Constant-time.
+- **v1** (`snr` + 32 base32, MAC domain `snare/v1|`) still verifies, so tokens planted before
+  M3a-fix keep firing.
+- Minted URLs are `<SNARE_PUBLIC_URL>/v1/<token>`. `SNARE_URL_PATH` changes the path (it was a
+  fixed `/t/`, another fingerprint).
 
 ## Channels
 
 | Channel | Trigger | Why |
 |---|---|---|
-| HTTP | Any request whose path or `Host` contains a valid token, e.g. `https://cb.example/t/<token>` | Honey URLs, honey API base URLs, canary links |
+| HTTP | Any request whose path, query or `Host` contains a valid token, e.g. `https://cb.example/v1/<token>`; also a token in `Authorization`, `X-Api-Key` or `Api-Key` (recorded as its own hit; the header value is never stored) | Honey URLs, honey API base URLs and keys, canary links |
 | DNS | Any query for `*.<token>.<zone>` or `<token>.<zone>` | Fires even when HTTP egress is blocked; resolvers leak lookups by design |
 
 Both answer blandly (HTTP `200 {"status":"ok"}`, DNS an A record to a configured address)
