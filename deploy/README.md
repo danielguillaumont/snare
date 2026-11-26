@@ -66,6 +66,13 @@ M4's "deployed with IaC" criterion is met when `smoke.sh` passes against a stack
   script logs to `/var/log/snare-bootstrap.log`.
 - **Upgrade:** change `image` and apply. The instance is replaced, and the data volume is
   reattached with tenants, tokens and certificates intact.
+- **Alert delivery:** alerts are queued in a durable outbox and retried for about 3 h per
+  destination. `snare deliveries -state dead` lists the ones that gave up; fix the sink,
+  then `snare deliveries -retry ID`. Delivery is at least once: receivers dedupe on
+  `finding_info.uid`.
+- **Metrics:** `GET /metrics` on the admin listener (operator key). Alert rules for dead
+  deliveries, a delivery backlog, shed alerts and a down target are in
+  [prometheus/snare-rules.yml](prometheus/snare-rules.yml).
 - **Backups:** DLM takes daily snapshots of the data volume (14 kept by default). The volume
   has `prevent_destroy`, so `terraform destroy` stops at the data on purpose.
 - **Key rotation:** deliberately manual.

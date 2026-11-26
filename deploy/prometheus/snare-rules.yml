@@ -1,0 +1,39 @@
+# Prometheus alerting rules for Snare (docs/M4c-reliability.md §2).
+# Scrape the admin listener's /metrics with the operator key:
+#
+#   scrape_configs:
+#     - job_name: snare
+#       authorization: { credentials_file: /etc/prometheus/snare-admin-key }
+#       static_configs: [{ targets: ["127.0.0.1:8081"] }]
+#
+# internal/alert/rules_test.go checks that every metric named here exists.
+groups:
+  - name: snare
+    rules:
+      - alert: SnareDeliveryDead
+        expr: snare_deliveries_dead > 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "A Snare alert exhausted its retries and was never delivered"
+          runbook: "snare deliveries -state dead; fix the sink; snare deliveries -retry ID"
+
+      - alert: SnareDeliveryBacklog
+        expr: snare_oldest_pending_delivery_seconds > 900
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "A Snare alert has waited more than 15 minutes for delivery (a sink is failing)"
+
+      - alert: SnareAlertsShed
+        expr: increase(snare_alerts_shed_total[15m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: "Snare's delivery outbox is full; touches are stored but not alerted"
+
+      - alert: SnareDown
+        expr: up{job="snare"} == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Snare is not being scraped; tripwires may not be alerting"

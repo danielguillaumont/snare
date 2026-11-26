@@ -210,12 +210,13 @@ func TestTenantRoutingAndSealBinding(t *testing.T) {
 	}
 	res := &TenantResolver{Store: st, Sealer: sealer, Client: egress.Policy{AllowPrivate: true}.Client(5 * time.Second), Log: quiet}
 	op1 := &memSink{}
-	disp := NewDispatcher(quiet, DispatcherOpts{Resolver: res}, op1)
-	p := &Pipeline{Store: st, Dispatcher: disp, Dedup: NewDedup(time.Minute), Log: quiet}
+	ob := fastOutbox(st, op1)
+	ob.Resolver = res
+	p := &Pipeline{Store: st, Outbox: ob, Dedup: NewDedup(time.Minute), Log: quiet}
 	if err := p.Hit(ctx, "tok_b", "http", "203.0.113.1", "GET"); err != nil {
 		t.Fatal(err)
 	}
-	disp.Close()
+	drain(t, ob)
 	if len(hitsA.reqs) != 0 {
 		t.Fatalf("tenant A's sink received B's alert")
 	}

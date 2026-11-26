@@ -8,12 +8,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/danielguillaumont/snare/internal/alert"
 	"github.com/danielguillaumont/snare/internal/egress"
+	"github.com/danielguillaumont/snare/internal/metrics"
 	"github.com/danielguillaumont/snare/internal/seal"
 	"github.com/danielguillaumont/snare/internal/store"
 	"github.com/danielguillaumont/snare/internal/token"
@@ -26,6 +28,7 @@ var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
 type tenantFix struct {
 	id, admin, viewer, revoked  string
 	tokID, label, sinkID, keyID string
+	deliveryID                  string // a dead delivery to sinkID
 }
 
 type env struct {
@@ -49,6 +52,9 @@ func newEnv(t *testing.T) *env {
 	t.Cleanup(hook.Close)
 	api := &API{Key: []byte(opKey), Signer: signer, Store: st, PublicURL: "https://cb.example.com", Log: quiet,
 		Sealer: sealer, Egress: egress.Policy{AllowPrivate: true}}
+	reg := metrics.New()
+	alert.NewMetrics(reg, st)
+	api.Metrics = reg
 	srv := httptest.NewServer(api.Handler())
 	t.Cleanup(srv.Close)
 	e := &env{t: t, srv: srv, st: st}
@@ -68,12 +74,26 @@ func newEnv(t *testing.T) *env {
 		var m MintResponse
 		e.call("POST", "/api/tokens", f.admin, "", MintRequest{Kind: "canary_url", Label: f.label}, 201, &m)
 		f.tokID = m.ID
-		if _, _, _, err := st.RecordHit(ctx, store.Event{TokenID: m.ID, Channel: "http", SourceIP: "203.0.113.2", At: time.Now()}); err != nil {
+		if _, _, _, _, err := st.RecordHit(ctx, store.Event{TokenID: m.ID, Channel: "http", SourceIP: "203.0.113.2", At: time.Now()}, true); err != nil {
 			t.Fatal(err)
 		}
 		var s sinkView
 		e.call("POST", "/api/sinks", f.admin, "", alert.SinkConfig{Type: "webhook", URL: hook.URL, Secret: "webhook-secret-" + name}, 201, &s)
 		f.sinkID = s.ID
+		// The hit's delivery to that sink has failed for good.
+		ob := st.Outbox()
+		due, _ := ob.Due(ctx, time.Now().Add(time.Minute), 10)
+		for _, d := range due {
+			if d.IsMarker() && d.TenantID == tn.ID {
+				_ = ob.Expand(ctx, d, []string{s.ID}, time.Now())
+			}
+		}
+		rows, _ := st.Tenant(tn.ID).ListDeliveries(ctx, "", 10)
+		if len(rows) != 1 {
+			t.Fatalf("fixture deliveries %+v", rows)
+		}
+		_ = ob.MarkFailed(ctx, rows[0].ID, 20, time.Now(), "connection refused", true, time.Now())
+		f.deliveryID = strconv.FormatInt(rows[0].ID, 10)
 		return f
 	}
 	e.a, e.b = mk("acme"), mk("beta")
@@ -154,7 +174,7 @@ func TestAPITenantIsolationMatrix(t *testing.T) {
 			method, path, _ := strings.Cut(rt.Pattern, " ")
 			hasID := strings.Contains(path, "{id}")
 			for i := range e.callers() {
-				if method == "DELETE" {
+				if method == "DELETE" || strings.HasSuffix(path, "/retry") {
 					e = newEnv(t) // destructive: each caller gets fresh resources
 				}
 				c := e.callers()[i]
@@ -178,6 +198,9 @@ func TestAPITenantIsolationMatrix(t *testing.T) {
 						id := tg.f.tokID
 						if strings.HasPrefix(path, "/api/sinks/") {
 							id = tg.f.sinkID
+						}
+						if strings.HasPrefix(path, "/api/deliveries/") {
+							id = tg.f.deliveryID
 						}
 						p = strings.Replace(path, "{id}", id, 1)
 					}
@@ -219,16 +242,18 @@ func bodyFor(pattern string) any {
 
 // success is the status a permitted caller gets on its own tenant's resource.
 var success = map[string]int{
-	"POST /api/tokens":          201,
-	"GET /api/tokens":           200,
-	"GET /api/tokens/{id}":      200,
-	"GET /api/events":           200,
-	"GET /api/events/export":    200,
-	"GET /api/sinks":            200,
-	"POST /api/sinks":           201,
-	"DELETE /api/sinks/{id}":    204,
-	"POST /api/sinks/{id}/test": 200,
-	"GET /api/audit":            200,
+	"POST /api/tokens":                201,
+	"GET /api/tokens":                 200,
+	"GET /api/tokens/{id}":            200,
+	"GET /api/events":                 200,
+	"GET /api/events/export":          200,
+	"GET /api/sinks":                  200,
+	"POST /api/sinks":                 201,
+	"DELETE /api/sinks/{id}":          204,
+	"POST /api/sinks/{id}/test":       200,
+	"GET /api/audit":                  200,
+	"GET /api/deliveries":             200,
+	"POST /api/deliveries/{id}/retry": 204,
 }
 
 func expect(c caller, rt Route, target string) int {
@@ -403,5 +428,38 @@ func TestAuditThroughAPI(t *testing.T) {
 		if x.TenantID != e.b.id {
 			t.Fatalf("tenant filter leaked %+v", x)
 		}
+	}
+}
+
+func TestMetricsAndOperatorDeliveries(t *testing.T) {
+	e := newEnv(t)
+	code, body := e.do("GET", "/metrics", opKey, "", nil)
+	if code != 200 || !bytes.Contains(body, []byte("snare_deliveries_dead 2\n")) ||
+		!bytes.Contains(body, []byte("# TYPE snare_deliveries_total counter")) {
+		t.Fatalf("metrics: %d\n%s", code, body)
+	}
+	if bytes.Contains(body, []byte(e.a.id)) || bytes.Contains(body, []byte(e.a.label)) {
+		t.Fatal("metrics carry tenant data")
+	}
+
+	var dead []struct {
+		ID       int64  `json:"id"`
+		TenantID string `json:"tenant_id"`
+		Sink     string `json:"sink"`
+	}
+	e.call("GET", "/api/operator/deliveries?state=dead", opKey, "", nil, 200, &dead)
+	if len(dead) != 2 {
+		t.Fatalf("operator sees %+v", dead)
+	}
+	e.call("GET", "/api/operator/deliveries?state=bogus", opKey, "", nil, 400, nil)
+	e.call("GET", "/api/deliveries?state=bogus", e.a.viewer, "", nil, 400, nil)
+	id := strconv.FormatInt(dead[0].ID, 10)
+	e.call("POST", "/api/operator/deliveries/"+id+"/retry", opKey, "", nil, 204, nil)
+	e.call("POST", "/api/operator/deliveries/"+id+"/retry", opKey, "", nil, 404, nil) // no longer dead
+	e.call("POST", "/api/operator/deliveries/x/retry", opKey, "", nil, 404, nil)
+	var audit []store.AuditEntry
+	e.call("GET", "/api/operator/audit?tenant="+dead[0].TenantID, opKey, "", nil, 200, &audit)
+	if len(audit) == 0 || audit[0].Action != store.ActDeliveryRetry || audit[0].Actor != "operator" {
+		t.Fatalf("retry not audited: %+v", audit)
 	}
 }

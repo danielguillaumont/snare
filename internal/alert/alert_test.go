@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielguillaumont/snare/internal/store"
 )
 
 var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -53,80 +52,6 @@ func TestDedupWindow(t *testing.T) {
 	if !d.Allow("other", t0) {
 		t.Fatal("different key must pass")
 	}
-}
-
-func TestPipelineStoresEveryEventButDedupsAlerts(t *testing.T) {
-	ctx := context.Background()
-	st, _ := store.Open(":memory:")
-	defer st.Close()
-	_ = st.Tenant(store.DefaultTenant).CreateToken(ctx, store.Token{ID: "tid", Kind: "honey_credential", Label: "repo .env in payments-api"})
-	sink := &memSink{}
-	disp := NewDispatcher(quiet, DispatcherOpts{}, sink)
-	p := &Pipeline{Store: st, Dispatcher: disp, Dedup: NewDedup(time.Minute), Log: quiet}
-
-	for i := 0; i < 5; i++ { // resolver retry storm
-		if err := p.Hit(ctx, "tid", "dns", "198.51.100.4", "tid.cb.example. A"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	_ = p.Hit(ctx, "tid", "http", "198.51.100.4", "GET /t/x")
-	disp.Close()
-
-	evs, _ := st.Tenant(store.DefaultTenant).ListEvents(ctx, "tid", 100)
-	if len(evs) != 6 {
-		t.Fatalf("stored %d events, want 6", len(evs))
-	}
-	got := sink.alerts()
-	if len(got) != 2 {
-		t.Fatalf("sent %d alerts, want 2 (one per channel)", len(got))
-	}
-	a := got[0]
-	if a.ClassUID != 2004 || a.Unmapped.Label != "repo .env in payments-api" || a.SrcEndpoint.IP != "198.51.100.4" {
-		t.Fatalf("alert content: %+v", a)
-	}
-}
-
-func TestUnregisteredTokenStillAlerts(t *testing.T) {
-	st, _ := store.Open(":memory:")
-	defer st.Close()
-	sink := &memSink{}
-	disp := NewDispatcher(quiet, DispatcherOpts{}, sink)
-	p := &Pipeline{Store: st, Dispatcher: disp, Dedup: NewDedup(time.Minute), Log: quiet}
-	_ = p.Hit(context.Background(), "ghost", "http", "192.0.2.1", "")
-	disp.Close()
-	if got := sink.alerts(); len(got) != 1 || got[0].Unmapped.Kind != "unknown" {
-		t.Fatalf("got %+v", got)
-	}
-}
-
-func TestDispatcherRetries(t *testing.T) {
-	sink := &memSink{fail: 2}
-	disp := NewDispatcher(quiet, DispatcherOpts{Attempts: 3, Backoff: time.Millisecond}, sink)
-	disp.Enqueue(Alert{FindingInfo: FindingInfo{UID: "x"}})
-	disp.Close()
-	if len(sink.alerts()) != 1 {
-		t.Fatal("expected delivery on third attempt")
-	}
-}
-
-func TestEnqueueNeverBlocks(t *testing.T) {
-	block := make(chan struct{})
-	slow := sinkFunc(func(context.Context, Alert) error { <-block; return nil })
-	disp := NewDispatcher(quiet, DispatcherOpts{QueueSize: 1, Workers: 1}, slow)
-	done := make(chan struct{})
-	go func() {
-		for i := 0; i < 10; i++ {
-			disp.Enqueue(Alert{})
-		}
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("Enqueue blocked")
-	}
-	close(block)
-	disp.Close()
 }
 
 type sinkFunc func(context.Context, Alert) error
