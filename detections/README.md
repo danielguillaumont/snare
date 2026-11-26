@@ -60,3 +60,14 @@ A touch means something used a credential, link or tool that only exists as a tr
    - Rotate those credentials, not the honey ones.
 4. **False positive?** Only if a person was testing. Snare's measured benign trip rate is
    0/600 normal agent runs ([results](../docs/results-m0.md)).
+5. **Record it.** `snare triage -event ID -status acknowledged`, and later `resolved` or
+   `false_positive` with a short note. The dashboard then stops counting the touch as open,
+   and Snare's export carries the outcome as OCSF `status_id`, so the SIEM and Snare agree.
+   - Two false positives on one tripwire mean legitimate work keeps reaching it. Its
+     dashboard page says so. Move it.
+6. **Retire or replant.**
+   - Once a tripwire has fired, its value is known to whoever used it. Plant a new one
+     (`snare plant` mints fresh tokens).
+   - Disable the old one with `snare tokens -disable ID`. It keeps recording touches,
+     marked muted, without paging anyone, so later use of the leaked value is still on
+     record.
