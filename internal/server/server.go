@@ -175,6 +175,15 @@ func Start(cfg Config, log *slog.Logger) (*Server, error) {
 			st.Close()
 			return nil, err
 		}
+		// Token labels say where tripwires are planted: sealed at rest (docs/M4d-operations.md §2).
+		n, err := st.SealLabels(context.Background(), sealer)
+		if err != nil {
+			st.Close()
+			return nil, fmt.Errorf("sealing token labels: %w", err)
+		}
+		if n > 0 {
+			log.Info("sealed plaintext token labels", "tokens", n)
+		}
 		resolver = &alert.TenantResolver{Store: st, Sealer: sealer, Client: policy.Client(10 * time.Second), Log: log}
 		ob.Resolver = resolver // only when non-nil: a nil *TenantResolver in the interface is not nil
 	}

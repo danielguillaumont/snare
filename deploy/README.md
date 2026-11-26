@@ -85,6 +85,8 @@ M4's "deployed with IaC" criterion is met when `smoke.sh` passes against a stack
        dropped key are ignored like any other noise.
     5. Rotation also signs everyone out of the dashboard: sessions are derived from the
        current key.
-  - Rotating `SNARE_SEAL_KEY` requires re-creating every tenant sink.
+  - Rotating `SNARE_SEAL_KEY` requires re-creating every tenant sink. Token labels sealed
+    under the old key read as `(sealed label: cannot open)`. The tripwires keep alerting; only
+    their descriptions are lost.
   - `SNARE_ADMIN_KEY` can rotate freely. Secrets are read at boot, so update the parameter
     and then run `terraform apply -replace=aws_instance.snare`.

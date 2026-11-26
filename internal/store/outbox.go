@@ -96,7 +96,7 @@ func (s *Store) RecordHit(ctx context.Context, e Event, alert bool) (tok Token, 
 	case err != nil:
 		return Token{}, Event{}, false, false, err
 	default:
-		tok = t
+		tok = s.openToken(t)
 	}
 	e.TenantID = tok.TenantID
 	res, err := tx.ExecContext(ctx,
@@ -130,9 +130,12 @@ func (s *Store) RecordHit(ctx context.Context, e Event, alert bool) (tok Token, 
 
 // Outbox is the delivery worker's view of the store. It is cross-tenant by nature, like
 // RecordHit; only internal/alert holds one.
-type Outbox struct{ db *sql.DB }
+type Outbox struct {
+	db *sql.DB
+	st *Store
+}
 
-func (s *Store) Outbox() *Outbox { return &Outbox{db: s.db} }
+func (s *Store) Outbox() *Outbox { return &Outbox{db: s.db, st: s} }
 
 // Due returns pending rows whose next attempt is due, markers first, oldest first.
 func (o *Outbox) Due(ctx context.Context, now time.Time, limit int) ([]Delivery, error) {
@@ -219,7 +222,7 @@ func (o *Outbox) AlertData(ctx context.Context, eventID int64) (Token, Event, bo
 	if err != nil {
 		return Token{}, Event{}, false, err
 	}
-	return tok, ev, true, nil
+	return o.st.openToken(tok), ev, true, nil
 }
 
 // RelatedTouch is an earlier touch of a different tripwire by the same source.
@@ -236,7 +239,7 @@ type RelatedTouch struct {
 // distinct counts tripwires including ev's own. Only events recorded before ev count, so the
 // answer is the same on every retry of a delivery.
 func (o *Outbox) Related(ctx context.Context, ev Event, window time.Duration, limit int) (rel []RelatedTouch, distinct int, err error) {
-	return related(ctx, o.db, ev, window, limit)
+	return related(ctx, o.st, ev, window, limit)
 }
 
 // RelatedTouches is Related for one of this tenant's own events. ev must belong to the
@@ -245,11 +248,11 @@ func (v *tenantView) RelatedTouches(ctx context.Context, ev Event, window time.D
 	if ev.TenantID != v.tid { // the query below filters on tenant_id = ev.TenantID
 		return nil, 0, ErrNotFound
 	}
-	return related(ctx, v.db, ev, window, limit)
+	return related(ctx, v.st, ev, window, limit)
 }
 
-func related(ctx context.Context, db *sql.DB, ev Event, window time.Duration, limit int) (rel []RelatedTouch, distinct int, err error) {
-	rows, err := db.QueryContext(ctx,
+func related(ctx context.Context, st *Store, ev Event, window time.Duration, limit int) (rel []RelatedTouch, distinct int, err error) {
+	rows, err := st.db.QueryContext(ctx,
 		`SELECT e.id, e.token_id, e.at, COALESCE(t.kind, 'unknown'), COALESCE(t.label, '(unregistered token)')
 		   FROM events e LEFT JOIN tokens t ON t.id = e.token_id AND t.tenant_id = e.tenant_id
 		  WHERE e.tenant_id = ? AND e.source_ip = ? AND e.id < ? AND e.at >= ? AND e.token_id != ?
@@ -270,6 +273,7 @@ func related(ctx context.Context, db *sql.DB, ev Event, window time.Duration, li
 			continue
 		}
 		seen[r.TokenID] = true
+		r.Label = st.openField(ev.TenantID, r.TokenID, "label", r.Label, LabelUnreadable)
 		r.At = time.UnixMilli(ms).UTC()
 		if len(rel) < limit {
 			rel = append(rel, r)
