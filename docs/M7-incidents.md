@@ -21,8 +21,13 @@ Stages are ordered: steered < recon < collection < exfiltration < use. Egress an
 come from how the token arrived, so they override the kind. A honey key pasted into an
 email is exfiltration whatever its kind.
 
-The listener passes the context (gateway layer, tool, session, credential header) to the
-pipeline as structured values, not only as text in the detail.
+The listener passes how the token arrived to the pipeline as a structured value
+(`listener.Context`), not only as text in the detail:
+- `via=egress` when the callback says `layer=egress` (the gateway);
+- `via=use` when the token was in a credential header;
+- the gateway's session id.
+
+No other `layer` value is a via, so a callback can't promote a touch to some other stage.
 
 ## 2. Incidents
 
@@ -38,37 +43,68 @@ pipeline as structured values, not only as text in the detail.
 - **Older events.** Events recorded before M7 have no incident. Their alerts keep the
   source-IP correlation, so a re-export of an old finding doesn't change.
 
+**Order.** The gateway reports touches asynchronously, so two touches a few milliseconds
+apart can arrive in either order. An incident's stages are listed in kill-chain order, and
+its timeline in the order the touches arrived.
+
 **DNS caveat.** A DNS touch's source is the agent's resolver, not the agent. DNS touches
 group by resolver IP, as they correlated before. Use the gateway's session id when attribution
 matters.
 
 ## 3. Severity
 
-A touch is **Critical** when any of these holds within its incident, counting touches up to
-and including this one:
+A touch is **Critical** when any of these holds over its correlated touches, counting those
+up to and including this one:
 
-1. two or more distinct tripwires (today's rule, now per incident);
+1. two or more distinct tripwires (the pre-M7 rule);
 2. two or more distinct stages, i.e. the attack moved through the kill chain;
 3. its own stage is exfiltration or use: data left, or a stolen value was used.
 
-Otherwise it is **High**. Severity never goes down, and it is computed from events recorded
-before the touch, so a retried delivery gets the same answer.
+Otherwise it is **High**. Severity is computed from events recorded before the touch, so a
+retried delivery gets the same answer.
+
+**Correlated touches** are the incident's earlier touches **plus** the same source's touches
+in the hour before. That second part is the whole pre-M7 rule, kept as a floor.
+- **Why the floor.** The session id arrives in the callback query, so whoever holds a token
+  chooses it.
+- **What it stops.** Without the floor, a fresh `session=` on each touch would split every
+  touch into its own incident. Two tripwires from one source would then raise two High
+  alerts where Snare used to raise a Critical one.
+- **What it leaves.** A forged session can still split the incident *list*, but never lower
+  severity.
+
+DEPTH.md proposed replacing the IP rule with the session; this keeps both, for that reason.
+
+Rule 2 matters on its own when one tripwire is touched at two stages. Example: a honey key
+is used as a credential, and later its base URL is fetched. The later touch is only
+collection, but the incident has already reached use, so the touch stays Critical.
 
 ## 4. Where it shows
 
-- **OCSF.** New `unmapped` fields: `layer`, `stage`, `session_id`, `incident_id`,
-  `incident_stages` (distinct stages so far, in kill-chain order) and `incident_touches`.
-  - `finding_info.related_events` lists the incident's other tripwires.
-  - `correlated_tripwires` keeps its meaning, now counted per incident.
-- **API.** `GET /api/incidents` (newest first, with stages, touches, tripwires, first and
-  last seen, and whether any touch is still open). `GET /api/incidents/{id}` returns the
-  incident and its touches in time order.
+- **OCSF.** New `unmapped` fields:
+  - `layer`, `stage`, `session_id` and `incident_id`;
+  - `correlated_stages` (distinct stages over the correlated touches, in kill-chain order)
+    and `correlated_touches`;
+  - `critical_because`: why the alert is Critical, in words.
+
+  `correlated_tripwires` and `finding_info.related_events` keep their meaning, over the
+  correlated touches of §3. Slack headers use `critical_because` when the alert is Critical
+  for a reason other than several tripwires.
+- **API.**
+  - `GET /api/incidents` lists incidents, most recently active first, each with stages,
+    touches, tripwires, first and last seen, and how many touches are still open.
+  - `GET /api/incidents/{id}` returns the incident and its touches in time order, each with
+    its tripwire's kind and label.
 - **CLI.** `snare incidents` lists them; `snare incidents -id N` prints the timeline.
-- **Dashboard.** An Incidents page and an incident timeline. The timeline shows each touch
-  with its stage, so the page reads as the attack's story: steered, recon, collection,
-  exfiltration.
+- **Dashboard.**
+  - An Incidents page and an incident timeline. The timeline shows each touch with its
+    stage, so the page reads as the attack's story: steered, recon, collection,
+    exfiltration.
+  - The overview gains a Stage column linking each touch to its incident. Its severity
+    follows the same rules as the alert.
 - **`snare advise`.** With `-manifest`, it reads what has been planted and reports per
-  layer whether it is armed, by what, and what to plant to arm it.
+  layer whether it is armed, by what, and what to plant to arm it. `-manifest` works with
+  or without `-config`.
 
 ## Not in M7
 
@@ -95,10 +131,18 @@ before the touch, so a retried delivery gets the same answer.
 
 ## Results
 
+Built 2026-11-26. No model calls, no API spend. Every item is a test in `go test ./...`.
+
 | Item | Status | Evidence |
 |---|---|---|
-| Classification | Not started | |
-| Incident grouping | Not started | |
-| Severity | Not started | |
-| API, CLI, dashboard | Not started | |
-| Layer coverage in `advise` | Not started | |
+| Classification | Done | `TestClassify` (every §1 row, both vias, an ignored via); `TestHTTPArrivalContext` |
+| Incident grouping | Done | `TestIncidentGroupsBySessionThenIP`, `TestIncidentGapRule` (59 min joins, 61 starts a new one, measured from the previous touch), `TestTwoSessionsFromOneIPStayApart`, `TestIncidentsNeverSpanTenants`, `TestPreM7EventsKeepIPCorrelation` |
+| Severity | Done | `TestSeverityRules` (each rule alone, and High), `TestForgedSessionsCannotHideCorrelation`, `TestCorrelationIsStableAcrossRetries`. Mutation check: weakening any one rule fails its own subtest |
+| Isolation | Done | `ListIncidents` and `GetIncident` in `TestTenantIsolationMatrix`; both routes in `TestAPITenantIsolationMatrix`; dashboard incident pages in `TestSignInAndTenantScopedPages` |
+| API, CLI, dashboard | Done | `TestEndToEndGateway`: decoy call, then the honey key emailed out. Result: one incident `recon, exfiltration`; the exported egress finding is Critical with `critical_because`; the dashboard timeline shows both in order |
+| Layer coverage in `advise` | Done | `TestCoverage`, `TestLoadManifest` |
+
+**What this does not show.** Grouping by session needs the gateway. Touches that don't come
+through it (a honey key used from another host, a DNS lookup) join an incident only by
+source IP, as before M7. Whether the stage labels help an analyst is untested; M13 is the
+measured run.

@@ -78,7 +78,8 @@ The gateway runs on the agent's machine, in the path of every tool call
 | A hijacked agent reads `gw.json` to learn which values are traps | Salted SHA-256 fingerprints only; no honey value and no signing key in the file | `TestConfigHoldsNoHoneyValueOrKey`, gateway end-to-end test |
 | The gateway leaks tool arguments | Arguments are scanned in memory only. A callback carries the matched honey token (already in the agent's hands), the layer, the tool name and the session id | Callback-contents assertions in the gateway tests |
 | Hostile arguments make the scan slow | At most 4,096 windows per call: about 1.7 ms in the worst case ([results](M6-gateway.md#results)) | `TestFingerprintScanIsBounded`, `BenchmarkMatcherWorstCase` |
-| Forged callback context (`layer`, `session`) | Three allowlisted keys with a strict charset; a valid token is still required to record anything | `TestHTTPCallbackContextIsAllowlisted` |
+| Forged callback context (`layer`, `session`) | Three allowlisted keys with a strict charset; a valid token is still required to record anything. `layer=egress` can only raise severity | `TestHTTPCallbackContextIsAllowlisted`, `TestHTTPArrivalContext` |
+| A fresh session id per touch, to split incidents and keep every alert High (M7) | Severity also counts the same source's touches in the hour before, as before M7. A forged session can split the incident list, never lower severity | `TestForgedSessionsCannotHideCorrelation` |
 
 Decoy tokens are in `gw.json`, as they are in the `decoy-mcp` config. An agent that can read
 the file can tell which tools are decoys. Keep it outside the agent's workspace; the planting

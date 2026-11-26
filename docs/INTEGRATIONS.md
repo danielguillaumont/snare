@@ -19,6 +19,13 @@ config offline and calls no model:
 snare advise -config claude_desktop_config.json
 ```
 
+After planting, `-manifest` shows which layers of the kill chain are armed and what would
+arm the rest:
+
+```sh
+snare advise -manifest snare-planted.json
+```
+
 Then plant the decoy server. Pass `-exclude` for any decoy that overlaps the agent's real
 job: a decoy the agent is supposed to call is a false positive waiting to happen.
 
@@ -155,6 +162,8 @@ NDJSON. Use it for a SIEM that only pulls, or to keep your own copy before
 Follow the triage steps in [detections/README.md](../detections/README.md). The short version:
 
 1. Work out who touched it, what input steered the agent there, and what else it reached.
+   The alert's `unmapped.incident_id` names the incident; `snare incidents -id N` prints
+   every touch in it, with its stage, in order.
 2. Decide whether it was a person testing (the only usual false positive).
 3. Record the outcome with `snare triage`.
 4. Retire the touched tripwire and plant a fresh one.

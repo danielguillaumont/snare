@@ -56,7 +56,11 @@ flowchart LR
    (constant-time, capped per request) **before** touching the database. Scanner noise and
    forged tokens never create events.
 5. **Record and route.** `RecordHit` resolves the token's tenant and, in the same
-   transaction, queues the alert in a durable outbox. A worker sends one OCSF Detection
+   transaction:
+   - labels the touch with its layer and kill-chain stage;
+   - adds it to an incident (keyed by gateway session, else source IP, open while touches
+     keep coming within an hour) ([M7](M7-incidents.md));
+   - queues the alert in a durable outbox. A worker sends one OCSF Detection
    Finding to the operator's sinks and to that tenant's sinks only. Each destination retries
    on its own schedule (about 3 h, then the row is marked dead and shown in metrics and the
    CLI), and survives restarts. Delivery is at least once with a stable `finding_info.uid`,
