@@ -102,3 +102,23 @@ other hosts and that the URL never appears in API responses.
 ## Changelog
 
 - 2026-11-26: design fixed before code.
+- 2026-11-26, results:
+  - **govulncheck** found GO-2026-6859 (`net/http` server crash), reachable from the
+    callback listener. Moving to Go 1.27.4 fixed it, and the rerun is clean.
+  - **Fuzzing,** 2 minutes per target, no failures:
+
+    | Target | Executions |
+    |---|---|
+    | `FuzzFind` | ~194k |
+    | `FuzzHTTP` | ~254k |
+    | `FuzzDNS` | ~1.16M |
+
+    The first listener run did fail, but the bug was in the test: seeds were minted in a
+    different process than the workers. The invariant now asks "the id comes from a token
+    that verifies in the input" instead of "the id equals the planted one".
+  - **Audit log:** sign-in auditing is best effort. A failed write is logged and the sign-in
+    still succeeds, because a sign-in changes nothing. Every real change fails if its audit
+    record can't be written.
+  - **Slack:** besides the planned checks, attacker text is escaped against mention and link
+    injection, and a negative control (escaping removed) makes the test fail.
+  - **Release signing** takes effect from the next tag. v0.4.0 is unsigned.

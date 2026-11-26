@@ -64,11 +64,11 @@ func TestTrifectaAgent(t *testing.T) {
 	}
 	text := recText(rep)
 	for _, want := range []string{
-		"snare plant mcp",                          // decoys on the private-data path
+		"snare plant mcp", // decoys on the private-data path
 		"snare plant repo /srv/support/shared-docs", // honey creds in the exposed root
-		"canary record",                            // customer-db
-		"SNARE_ZONE",                               // fetch can make outbound requests
-		"seeded item in",                           // canary in an untrusted source
+		"canary record",  // customer-db
+		"SNARE_ZONE",     // fetch can make outbound requests
+		"seeded item in", // canary in an untrusted source
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("recommendations lack %q:\n%s", want, text)

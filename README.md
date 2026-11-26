@@ -60,6 +60,27 @@ Haiku, Sonnet and Opus.
   deployed.** It runs as one node on SQLite.
 - **No external security review yet.**
 
+## Where should tripwires go?
+
+`snare advise` reads an agent's MCP config and checks whether the agent has all three of
+untrusted input, private data and a way to send data out. That combination is where an
+injection does damage. It never connects to anything:
+
+```text
+$ snare advise -config examples/agent-configs/support-agent.json
+  untrusted input: fetch, gmail, zendesk
+  private data:    customer-db, files, zendesk
+  way out:         fetch, gmail
+
+Risk: HIGH (all three: an injection here can reach data and send it out)
+
+Recommendations:
+2. ... Add the decoy MCP server. Screen the decoy names against this agent's real tools ...
+   $ snare plant mcp -config decoy-mcp.json
+4. files exposes /srv/support/shared-docs to the agent. Plant honey credentials there. ...
+   $ snare plant repo /srv/support/shared-docs
+```
+
 ## Try it in two minutes
 
 Needs Go, `openssl` and `curl`. Everything runs locally; no model is called.
@@ -79,6 +100,7 @@ go test ./...       # includes end-to-end tests: plant -> touch -> alert, two-te
 | M2 tripwire kit (planting, decoy MCP server) | ✅ Built |
 | M3a/b/c detection eval, anti-fingerprinting, decoy screen, AgentDojo | ✅ Published, including the partial results |
 | M4 multi-tenant service, OCSF/SIEM sinks, dashboard, IaC | 🟡 Built and tested; IaC not yet applied |
+| M4b hardening: supply chain, fuzzing, audit log, placement advisor, Slack | ✅ Built |
 | M5 design partners | Not started |
 
 Full plan and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).
@@ -140,8 +162,8 @@ bin\snare.exe tenant key -tenant tn_... -role admin     # prints a tenant key on
 $env:SNARE_ADMIN_KEY = "snk_..."; bin\snare.exe mint -kind canary_url -label "runbook link"   # as the tenant
 ```
 
-A tenant adds its own SIEM with `POST /api/sinks` (`splunk_hec`, `elastic`, `sentinel` or
-`webhook`), and `GET /api/events/export` streams its findings as OCSF NDJSON. Deployment is in
+A tenant adds its own SIEM or chat with `POST /api/sinks` (`splunk_hec`, `elastic`, `sentinel`,
+`slack` or `webhook`), and `GET /api/events/export` streams its findings as OCSF NDJSON. Deployment is in
 [deploy/README.md](deploy/README.md).
 
 ## Planting tripwires (M2)

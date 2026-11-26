@@ -59,12 +59,19 @@ prevention (input isolation, tool permissions), not in place of it.
 | **CSRF / clickjacking on the dashboard** | Per-form CSRF tokens on sign-in and sign-out, SameSite=Strict, `frame-ancestors 'none'`. The dashboard has no state-changing actions besides sign-out. | CSRF tests |
 | **Key brute force on sign-in** | Per-client-IP limiter (behind the proxy, the last `X-Forwarded-For` entry). Bounded memory. The limiter is mainly for noise: keys are not guessable. | Rate-limit tests |
 | **Alert tampering in transit** | Webhooks are HMAC-signed with a timestamp (replay window); SIEM sinks use TLS and their own auth. | `internal/alert` tests |
+| **Undetected admin changes** (who issued that key, who removed that sink) | Each change and its audit record commit together; records are hash-chained; tenants can read their own trail. | `internal/store/audit_test.go` (one record per action, tampering caught at the right row), API attribution test, smoke test |
+| **Mention or link injection in Slack alerts** | Attacker-controlled text is escaped (`&`, `<`, `>`) before it reaches Slack, and link unfurling is off. The webhook URL is treated as a secret. | `internal/alert/slack_test.go` |
+| **Parser bugs on the untrusted-input path** | Native Go fuzz targets for the token scanner and both listeners, with invariants. CI fuzzes them on every PR. | `internal/token/fuzz_test.go`, `internal/listener/fuzz_test.go` |
+| **Vulnerable or tampered dependencies and images** | govulncheck and CodeQL in CI, Dependabot; release images carry an SBOM and provenance and are cosign-signed. govulncheck found one reachable stdlib issue (GO-2026-6859), fixed by moving to Go 1.27.4. | CI `govulncheck`, `codeql` |
 | **Instance compromise via the host** | Distroless non-root container, read-only root filesystem, all capabilities dropped. No SSH (Session Manager only). Secrets live in SSM, never in Terraform state. | CI `image` job checks the user; IaC review |
 
 ### Residual risk (known, accepted or not yet addressed)
 
-- **Operator key is all-powerful.** There is no audit log of operator actions beyond the
-  structured server log, and no per-operator identity.
+- **Operator key is all-powerful, and shared.** Since M4b, every tenant, key and sink
+  change, and every dashboard sign-in, is written to a hash-chained audit log in the same
+  transaction as the change (`snare audit -verify`). There is still no per-operator identity,
+  and someone with database write access can rewrite the whole chain. Recording the chain
+  head off the box is what detects that.
 - **No per-user accounts or SSO inside a tenant.** Keys are shared credentials. This is out
   of scope for M4 by decision ([M4-saas.md](M4-saas.md)).
 - **Single node.** Availability matches one instance; there's no HA. Backups are daily
