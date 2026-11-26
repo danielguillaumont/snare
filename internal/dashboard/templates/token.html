@@ -6,14 +6,15 @@
     <dt>ID</dt><dd><code>{{.Token.ID}}</code></dd>
     <dt>Kind</dt><dd>{{.Token.Kind}}</dd>
     <dt>Created</dt><dd>{{ts .Token.CreatedAt}}</dd>
-    <dt>State</dt><dd>{{if .Token.Disabled}}<span class="tag">disabled</span> touches are recorded, no alert is sent. Re-enable with <code>snare tokens -enable {{.Token.ID}}</code>.{{else}}<span class="tag">armed</span>{{end}}</dd>
+    <dt>State</dt><dd>{{if .Token.Disabled}}<span class="tag">disabled</span> touches are recorded, no alert is sent.{{else}}<span class="tag">armed</span>{{end}}
+      {{if eq .S.Role "admin"}}<form method="post" class="inline" action="/tokens/{{.Token.ID}}/{{if .Token.Disabled}}enable{{else}}disable{{end}}"><input type="hidden" name="csrf" value="{{.S.CSRF}}"><button type="submit">{{if .Token.Disabled}}Enable{{else}}Disable{{end}}</button></form>{{else if .Token.Disabled}} Re-enable with <code>snare tokens -enable {{.Token.ID}}</code>.{{end}}</dd>
   </dl>
   {{if ge .FalsePositives 2}}<p class="warn"><b>{{.FalsePositives}} touches of this tripwire were marked false positive.</b> Legitimate work keeps reaching it, so it is probably in the wrong place. Move it, or disable it with <code>snare tokens -disable {{.Token.ID}}</code>.</p>{{end}}
   <h2>Touches ({{len .Events}})</h2>
   {{if .Events}}<table>
-    <thead><tr><th>ID</th><th>Time (UTC)</th><th>Channel</th><th>Source</th><th>Detail</th><th>Status</th></tr></thead>
-    <tbody>{{range .Events}}<tr class="{{if or .Muted (ne .Status "open")}}done{{else}}hit{{end}}"><td><code>{{.ID}}</code></td><td>{{ts .At}}</td><td>{{.Channel}}</td><td><code>{{.SourceIP}}</code></td><td class="detail">{{.Detail}}</td><td>{{template "status" .}}</td></tr>{{end}}</tbody>
+    <thead><tr><th>ID</th><th>Time (UTC)</th><th>Channel</th><th>Source</th><th>Detail</th><th>Status</th>{{if eq $.S.Role "admin"}}<th>Triage</th>{{end}}</tr></thead>
+    <tbody>{{range .Events}}<tr class="{{if or .Muted (ne .Status "open")}}done{{else}}hit{{end}}"><td><code>{{.ID}}</code></td><td>{{ts .At}}</td><td>{{.Channel}}</td><td><code>{{.SourceIP}}</code></td><td class="detail">{{.Detail}}</td><td>{{template "status" .}}</td>{{if eq $.S.Role "admin"}}<td><form method="post" class="triage" action="/tokens/{{$.Token.ID}}/events/{{.ID}}/triage"><input type="hidden" name="csrf" value="{{$.S.CSRF}}"><select name="status" aria-label="status">{{$cur := .Status}}{{range $.Statuses}}<option value="{{.}}"{{if eq . $cur}} selected{{end}}>{{.}}</option>{{end}}</select> <input name="note" maxlength="500" placeholder="note" value="{{.TriageNote}}" aria-label="note"> <button type="submit">Save</button></form></td>{{end}}</tr>{{end}}</tbody>
   </table>
-  <p class="muted">Record what a touch turned out to be: <code>snare triage -event ID -status acknowledged|resolved|false_positive</code>.</p>{{else}}<p class="muted">Not touched.</p>{{end}}
+  {{if ne .S.Role "admin"}}<p class="muted">Record what a touch turned out to be: <code>snare triage -event ID -status acknowledged|resolved|false_positive</code>, or sign in with an admin key to do it here.</p>{{end}}{{else}}<p class="muted">Not touched.</p>{{end}}
 </main>
 {{template "foot"}}

@@ -96,7 +96,8 @@ multi-region. These are listed so their absence is a decision, not an oversight.
 - **Headers:** strict CSP (`default-src 'self'`), `X-Frame-Options: DENY`, and no third-party
   assets.
 - **Forms:** read-only pages leave no CSRF surface beyond sign-in and sign-out, which carry a
-  per-session token.
+  per-session token. Since M4e, admin sessions also get triage and disable forms, carrying the same token
+  ([M4e-lifecycle.md](M4e-lifecycle.md) §4).
 
 ### Deployment (IaC)
 

@@ -19,6 +19,9 @@ tr.hit td:first-child { box-shadow: inset 3px 0 var(--hit); }
 td.detail { max-width:420px; overflow-wrap:anywhere; color:var(--muted); }
 .tag { white-space:nowrap; font-size:12px; padding:1px 8px; border-radius:10px; border:1px solid var(--line); color:var(--muted); }
 .tag.hit { color:var(--hit); background:var(--hit-bg); border-color:transparent; }
+form.inline { display:inline; margin-left:.5rem; }
+form.triage { display:flex; gap:.25rem; align-items:center; white-space:nowrap; }
+form.triage input[name=note] { width:14ch; }
 .tag.ok { color:var(--muted, #667); background:transparent; }
 tr.done td { color:var(--muted, #667); }
 .note { color:var(--muted, #667); font-size:.85em; max-width:24ch; display:inline-block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }

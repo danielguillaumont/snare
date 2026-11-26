@@ -1,4 +1,5 @@
-// Package dashboard serves the read-only tenant dashboard (docs/M4-saas.md).
+// Package dashboard serves the tenant dashboard (docs/M4-saas.md). It is read-only except for
+// admin sessions, which can triage touches and disable tripwires (docs/M4e-lifecycle.md §4).
 //
 // Sign-in exchanges a tenant API key for a session cookie. The cookie is HMAC-signed and
 // carries the key id, so revoking the key (or disabling the tenant) ends the session on the
@@ -19,6 +20,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -83,6 +86,10 @@ func (d *Dashboard) Handler() (http.Handler, error) {
 	mux.Handle("GET /{$}", d.authed(d.overview))
 	mux.Handle("GET /tokens/{id}", d.authed(d.tokenPage))
 	mux.Handle("GET /sinks", d.authed(d.sinksPage))
+	// Admin actions (docs/M4e-lifecycle.md §4). Each redirects back to the tripwire's page.
+	mux.Handle("POST /tokens/{id}/disable", d.authed(d.adminForm(d.setTokenDisabled(true))))
+	mux.Handle("POST /tokens/{id}/enable", d.authed(d.adminForm(d.setTokenDisabled(false))))
+	mux.Handle("POST /tokens/{id}/events/{eid}/triage", d.authed(d.adminForm(d.triage)))
 	return secureHeaders(mux), nil
 }
 
@@ -335,7 +342,8 @@ func (d *Dashboard) tokenPage(w http.ResponseWriter, r *http.Request, s session)
 			fp++
 		}
 	}
-	d.render(w, "token.html", map[string]any{"S": s, "Token": t, "Events": evs, "FalsePositives": fp})
+	d.render(w, "token.html", map[string]any{"S": s, "Token": t, "Events": evs, "FalsePositives": fp,
+		"Statuses": []string{store.StatusOpen, store.StatusAcknowledged, store.StatusResolved, store.StatusFalsePositive}})
 }
 
 func (d *Dashboard) sinksPage(w http.ResponseWriter, r *http.Request, s session) {
@@ -350,6 +358,53 @@ func (d *Dashboard) sinksPage(w http.ResponseWriter, r *http.Request, s session)
 		return
 	}
 	d.render(w, "sinks.html", map[string]any{"S": s, "Sinks": recs, "Deliveries": ds})
+}
+
+// adminForm guards a state-changing form: admin sessions only, and the session's CSRF token.
+// The store call runs as the signed-in key, so it is audited under that key.
+func (d *Dashboard) adminForm(next func(http.ResponseWriter, *http.Request, store.TenantStore) error) func(http.ResponseWriter, *http.Request, session) {
+	return func(w http.ResponseWriter, r *http.Request, s session) {
+		if s.Role != store.RoleAdmin {
+			http.Error(w, "forbidden: sign in with an admin key to change tripwires", http.StatusForbidden)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if subtle.ConstantTimeCompare([]byte(r.PostForm.Get("csrf")), []byte(s.CSRF)) != 1 {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		r = r.WithContext(store.WithActor(r.Context(), s.KeyID))
+		err := next(w, r, d.Store.Tenant(s.TenantID))
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			http.NotFound(w, r)
+		case errors.Is(err, store.ErrInvalid):
+			http.Error(w, "invalid status or note too long", http.StatusBadRequest)
+		case err != nil:
+			d.fail(w, err)
+		default:
+			// Built from the token id, never from the request's Referer or a form field.
+			http.Redirect(w, r, "/tokens/"+url.PathEscape(r.PathValue("id")), http.StatusSeeOther)
+		}
+	}
+}
+
+func (d *Dashboard) setTokenDisabled(disabled bool) func(http.ResponseWriter, *http.Request, store.TenantStore) error {
+	return func(_ http.ResponseWriter, r *http.Request, v store.TenantStore) error {
+		return v.SetTokenDisabled(r.Context(), r.PathValue("id"), disabled)
+	}
+}
+
+func (d *Dashboard) triage(_ http.ResponseWriter, r *http.Request, v store.TenantStore) error {
+	id, err := strconv.ParseInt(r.PathValue("eid"), 10, 64)
+	if err != nil {
+		return store.ErrNotFound
+	}
+	return v.TriageEvent(r.Context(), id, r.PostForm.Get("status"), strings.TrimSpace(r.PostForm.Get("note")))
 }
 
 func (d *Dashboard) fail(w http.ResponseWriter, err error) {
