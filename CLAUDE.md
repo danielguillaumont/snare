@@ -24,7 +24,8 @@ Snare is a security product. Correctness and honesty of claims matter more than 
 
 - `experiments/killtest/` — Python 3.12 harness. Package `killtest`, tests in `tests/`.
 - Go module `github.com/danielguillaumont/snare`: CLI in `cmd/snare`, packages in `internal/`
-  (`token`, `store`, `alert`, `listener`, `admin`, `server`). Design notes per milestone in `docs/`.
+  (`token`, `store`, `alert`, `listener`, `admin`, `server`, `seal`, `egress`, `dashboard`,
+  `decoys`, `mcp`, `plant`). Design notes per milestone in `docs/`; overview in `docs/ARCHITECTURE.md`.
 
 ## Commands
 

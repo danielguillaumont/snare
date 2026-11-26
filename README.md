@@ -2,75 +2,93 @@
 
 [![ci](https://github.com/danielguillaumont/snare/actions/workflows/ci.yml/badge.svg)](https://github.com/danielguillaumont/snare/actions/workflows/ci.yml)
 
-**Tripwires for AI agents.** Snare plants decoy tools, canary instructions and honey
-credentials across everything your agents touch. Legitimate work never touches a trap, so
-when one fires you get a high-confidence alert that names the agent, the session and the
-input that turned it.
+**Tripwires for AI agents.** Snare plants decoy tools, canary documents and honey
+credentials where your agents work. Legitimate tasks have no reason to touch them. When a
+prompt-injected agent does, you get a high-confidence alert that names the exact tripwire,
+in your SIEM's format.
 
-> Status: **M0 kill test passed (GO).** Across Haiku, Sonnet and Opus, benign agents touched
-> a decoy in 0 of 600 normal runs (95% CI 0–0.6%) and 2 of 232 runs on tasks deliberately
-> close to a decoy's purpose (0.9%, CI 0.2–3.1%), after retiring 3 decoys that failed the
-> first run. The detection side (catching hijacked agents) is not yet measured.
-> Details, limitations and evidence: [docs/results-m0.md](docs/results-m0.md).
->
-> **M3a detection eval: PARTIAL.** Tripwires caught 42% of credential-hunting agents (46/110,
-> 95% CI 33–51%; 32% immediately) with 0/180 benign false trips. An attacker who knows Snare's
-> public decoy names and token format evaded all 200 scripted runs, so that's the next fix.
-> Measured on an authorized-audit proxy, not real hijacks: [docs/results-m3a.md](docs/results-m3a.md).
->
-> **M3a-fix anti-fingerprinting: 1 of 3 criteria met.** Tokens no longer have a fixed prefix,
-> each honey field gets its own token, and decoys can take per-install names. The scripted
-> attacker that evaded 200/200 is now caught 200/200. Warned agents still flag the honey key
-> about as often (69% vs 75%), generated names need screening (4/120 hard-benign trips), and an
-> attacker who reads this code still evades unless you set your own names:
-> [docs/results-m3a-fix.md](docs/results-m3a-fix.md).
->
-> **M3a-fix2: generated decoy names screened, PASS.** Each of the 68 names was screened on hard
-> benign tasks. One variant was retired, and the survivors tripped 0/300 runs on a held-out task
-> set (upper bound 1.3%): [docs/results-m3a-fix2.md](docs/results-m3a-fix2.md).
->
-> **M3b decoy safety screen: PASS.** `killtest screen` checks a team's own decoys against
-> their agent's tools before deployment. We gave it M0's 20 decoys blind, with model-written
-> tasks only. It retired the decoy M0 had retired by hand (`fetch_internal_wiki`, 14/129
-> adjacent exposures) and kept all 17 that M0 kept (800 runs, $4.02):
-> [docs/results-m3b.md](docs/results-m3b.md).
->
-> **M3c on AgentDojo (external benchmark): safe, no detection evidence.** We added Snare decoys
-> to ETH Zurich's AgentDojo suites, unmodified: 1,671 runs on Haiku and Sonnet, $9.58.
-> 0/291 benign runs tripped (upper bound 1.3%), and utility moved −3.4 points (pre-registered
-> limit −5). No decoy was called in any of 1,089 injected runs either. The one injection that
-> worked only changes the agent's answer and uses no tool, so this run says nothing about
-> catching hijacks: [docs/results-m3c.md](docs/results-m3c.md).
->
-> **M1 callback server and M2 tripwire kit are built** and covered by end-to-end tests
-> (plant → touch → signed alert).
->
-> **M4 hosted service: built, IaC written, not yet applied.**
-> - **Tenancy:** tenant isolation is enforced in the store. Tests cover every tenant-scoped
->   method and every API route, for each caller, against both its own ids and another tenant's.
-> - **Alerts:** OCSF 1.3 Detection Findings, with sinks for Splunk HEC, Elastic and Microsoft
->   Sentinel. Per-tenant sink credentials are sealed at rest, and an SSRF guard checks the
->   address again when connecting.
-> - **Dashboard:** read-only.
-> - **Infrastructure:** Terraform for one AWS node.
->
-> CI runs the deploy smoke test against a real server. Nothing is hosted yet:
-> [docs/M4-saas.md](docs/M4-saas.md).
+![Snare dashboard: three tripwires, one touched by an agent following a canary link](docs/img/dashboard.png)
 
 ## Why
 
 - Prompt injection has no complete fix. Agents still read untrusted email, tickets, pages and code.
-- Classifier-style defenses guess and produce noise.
-- A hijacked agent uses its own legitimate permissions, so normal logs see nothing unusual.
+- A hijacked agent uses its own legitimate permissions, so ordinary logs see nothing unusual.
+- Classifier-style defenses guess, and produce noise.
 
-Snare does not try to prevent injection. It **detects** it with a binary signal: a trap was
-touched, or it wasn't.
+Snare doesn't try to prevent injection. It **detects** it with a binary signal: a trap was
+touched, or it wasn't. A binary signal can be measured, so that's what this project does
+before making claims.
+
+## How it works
+
+1. **Plant.**
+   - `snare plant` writes honey credentials and canary docs into repos and RAG corpora.
+   - `snare decoy-mcp` serves decoy tools beside the real ones.
+   - Every tripwire gets its own unprefixed, HMAC-signed token.
+2. **Touch.** A steered agent calls a decoy, uses a honey key, follows a canary link, or
+   resolves a canary hostname. Snare's HTTP and authoritative-DNS listeners verify the MAC
+   before doing anything else. The toucher gets a bland reply.
+3. **Alert.** The hit becomes an OCSF 1.3 Detection Finding. It is routed to a signed webhook,
+   Splunk, Elastic or Microsoft Sentinel, and shown on a read-only, multi-tenant dashboard.
+
+Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). What it defends against, and what it
+doesn't: [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).
+
+## What's measured
+
+Every number below comes from a results directory linked beside it, with denominators and
+95% CIs. Thresholds were pre-registered in [docs/killtest.md](docs/killtest.md). Models: Claude
+Haiku, Sonnet and Opus.
+
+| Question | Result | Source |
+|---|---|---|
+| Do benign agents touch decoys? | **0/600** normal runs (CI 0–0.6%); **2/232** on tasks built to sit next to a decoy's purpose (0.9%, CI 0.2–3.1%), after retiring 3 decoys | [M0](docs/results-m0.md) |
+| Can a team screen its own decoys before deploying? | `killtest screen` blindly retired the one decoy M0 had retired by hand, and kept all 17 that M0 kept (800 runs) | [M3b](docs/results-m3b.md) |
+| Are generated per-install decoy names safe? | **0/300** trips on held-out hard-benign tasks (upper bound 1.3%) | [M3a-fix2](docs/results-m3a-fix2.md) |
+| Safe on an external benchmark? | AgentDojo, unmodified: **0/291** benign trips, utility **−3.4 points** (pre-registered limit −5) | [M3c](docs/results-m3c.md) |
+| Do tripwires catch hijacked agents? | **46/110** credential-hunting agents caught (42%, CI 33–51%), 0/180 benign trips. Measured on an authorized-audit proxy, not real hijacks | [M3a](docs/results-m3a.md) |
+| Can an attacker who knows Snare evade it? | Scripted evader: 200/200 evaded → **200/200 caught** after anti-fingerprinting. An attacker who reads this repo still evades the default decoy names; set your own | [M3a-fix](docs/results-m3a-fix.md) |
+
+## Limitations
+
+- **Recall is partial and only measured on a proxy.** On AgentDojo, no tool-using injection
+  succeeded, so that benchmark gives no detection evidence either way.
+- **Agents warned about honeypots still avoid honey keys** about as often (69% vs 75%).
+- **Answer-only injections are invisible.** If the injection never makes the agent touch
+  anything, there is nothing to trip.
+- **The hosted service is built and its IaC is validated in CI, but it has never been
+  deployed.** It runs as one node on SQLite.
+- **No external security review yet.**
+
+## Try it in two minutes
+
+Needs Go, `openssl` and `curl`. Everything runs locally; no model is called.
+
+```bash
+scripts/demo.sh     # starts Snare, plants 3 tripwires, sets one off, prints a dashboard key
+# open http://127.0.0.1:18090 and sign in with the printed key
+go test ./...       # includes end-to-end tests: plant -> touch -> alert, two-tenant isolation
+```
+
+## Status
+
+| Milestone | State |
+|---|---|
+| M0 kill test: are decoys safe at all? | ✅ GO |
+| M1 callback server (HTTP + DNS, signed alerts) | ✅ Built, alert end to end in < 5 s (tested) |
+| M2 tripwire kit (planting, decoy MCP server) | ✅ Built |
+| M3a/b/c detection eval, anti-fingerprinting, decoy screen, AgentDojo | ✅ Published, including the partial results |
+| M4 multi-tenant service, OCSF/SIEM sinks, dashboard, IaC | 🟡 Built and tested; IaC not yet applied |
+| M5 design partners | Not started |
+
+Full plan and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Repository layout
 
 | Path | What it is |
 |---|---|
 | [docs/SPEC.md](docs/SPEC.md) | Product spec: problem, users, components, non-goals |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) | How the pieces fit; what Snare defends against and what it doesn't |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones M0–M5 and their exit criteria |
 | [docs/killtest.md](docs/killtest.md) | Pre-registered protocol and go / iterate / kill thresholds |
 | [experiments/killtest/](experiments/killtest/) | The kill-test harness (Python, Claude API) |
