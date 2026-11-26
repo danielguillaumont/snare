@@ -1,0 +1,44 @@
+{
+  "index_patterns": ["snare-alerts*"],
+  "priority": 200,
+  "template": {
+    "mappings": {
+      "dynamic": true,
+      "properties": {
+        "@timestamp": { "type": "date" },
+        "time": { "type": "date", "format": "epoch_millis" },
+        "class_uid": { "type": "integer" },
+        "severity_id": { "type": "integer" },
+        "severity": { "type": "keyword" },
+        "message": { "type": "text" },
+        "src_endpoint": { "properties": { "ip": { "type": "ip", "ignore_malformed": true } } },
+        "finding_info": {
+          "properties": {
+            "uid": { "type": "keyword" },
+            "title": { "type": "text", "fields": { "keyword": { "type": "keyword", "ignore_above": 512 } } },
+            "types": { "type": "keyword" }
+          }
+        },
+        "metadata": {
+          "properties": {
+            "tenant_uid": { "type": "keyword" },
+            "uid": { "type": "keyword" },
+            "product": { "properties": { "name": { "type": "keyword" }, "version": { "type": "keyword" } } }
+          }
+        },
+        "unmapped": {
+          "properties": {
+            "token_id": { "type": "keyword" },
+            "kind": { "type": "keyword" },
+            "label": { "type": "keyword", "ignore_above": 1024 },
+            "channel": { "type": "keyword" },
+            "detail": { "type": "text" },
+            "event_id": { "type": "long" },
+            "correlated_tripwires": { "type": "integer" },
+            "correlation_window": { "type": "keyword" }
+          }
+        }
+      }
+    }
+  }
+}

@@ -222,6 +222,49 @@ func (o *Outbox) AlertData(ctx context.Context, eventID int64) (Token, Event, bo
 	return tok, ev, true, nil
 }
 
+// RelatedTouch is an earlier touch of a different tripwire by the same source.
+type RelatedTouch struct {
+	EventID int64
+	TokenID string
+	Kind    string
+	Label   string
+	At      time.Time
+}
+
+// Related returns, for event ev, the other tripwires the same source touched in the same
+// tenant during the window before it: the latest touch of each, newest first, at most limit.
+// distinct counts tripwires including ev's own. Only events recorded before ev count, so the
+// answer is the same on every retry of a delivery.
+func (o *Outbox) Related(ctx context.Context, ev Event, window time.Duration, limit int) (rel []RelatedTouch, distinct int, err error) {
+	rows, err := o.db.QueryContext(ctx,
+		`SELECT e.id, e.token_id, e.at, COALESCE(t.kind, 'unknown'), COALESCE(t.label, '(unregistered token)')
+		   FROM events e LEFT JOIN tokens t ON t.id = e.token_id AND t.tenant_id = e.tenant_id
+		  WHERE e.tenant_id = ? AND e.source_ip = ? AND e.id < ? AND e.at >= ? AND e.token_id != ?
+		  ORDER BY e.id DESC LIMIT 1000`,
+		ev.TenantID, ev.SourceIP, ev.ID, ev.At.Add(-window).UnixMilli(), ev.TokenID)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	seen := map[string]bool{}
+	for rows.Next() {
+		var r RelatedTouch
+		var ms int64
+		if err := rows.Scan(&r.EventID, &r.TokenID, &ms, &r.Kind, &r.Label); err != nil {
+			return nil, 0, err
+		}
+		if seen[r.TokenID] {
+			continue
+		}
+		seen[r.TokenID] = true
+		r.At = time.UnixMilli(ms).UTC()
+		if len(rel) < limit {
+			rel = append(rel, r)
+		}
+	}
+	return rel, len(seen) + 1, rows.Err()
+}
+
 // OutboxStats summarises the outbox for metrics.
 type OutboxStats struct {
 	Pending, Dead int

@@ -111,9 +111,9 @@ Each covers two detections:
 1. **Any tripwire touched.**
 2. **Several tripwires touched by one source** (Critical).
 
-A manifest lists every field path each rule uses. A Go test marshals a real alert and fails
-if a listed path doesn't exist. Renaming a field in `internal/alert` without updating the
-rules breaks CI.
+A Go test extracts every field path each rule uses, builds a real correlated alert, and fails
+if a path doesn't exist in the shape that SIEM receives. Renaming a field in `internal/alert`
+without updating the rules breaks CI.
 
 **Exit:** every rule's fields exist in a real alert, and the test fails when one is broken
 deliberately.
@@ -140,4 +140,6 @@ deliberately.
 |---|---|---|
 | 1. Outbox | ✅ Built | `internal/store/outbox_test.go`: marker in the same transaction as the event, shedding at the cap, idempotent fan-out, retry schedule, audited manual retry, tenants never see the operator's deliveries. `internal/alert/outbox_test.go`: a sink failing 7 times still receives the alert; queued alerts are delivered after a restart; a hung sink holds exactly its cap of 2 of 4 workers while another sink receives all 20 alerts in under 1 s; the backoff totals about 2.8 h, as stated above. Isolation: `TenantStore.ListDeliveries` and `RetryDelivery` are in the store matrix, and both routes are in the API matrix. |
 | 2. Metrics | ✅ Built | `internal/metrics` output is checked line by line against the exposition grammar; `rules_test.go` fails if a shipped rule names a metric Snare doesn't export (checked by renaming one); the smoke test reads the hit and delivery counters through `/metrics` and checks that a tenant key gets 404. |
-| 3–5 | Not started | |
+| 3. Correlation | ✅ Built | `internal/alert/correlation_test.go`: touching a second tripwire from one source makes it Critical with the first as a `related_event`, and a third counts 3. Four non-cases stay High: the same tripwire twice, another source, outside the window, another tenant's touch from the same IP. Touches recorded after an event don't change its rebuilt alert, so retries send identical bodies. The export endpoint uses the same builder. The Slack header escalates. |
+| 4. Detection content | ✅ Built, not run in a SIEM | [detections/](../detections/): Splunk, Sentinel, Elastic (rules and index template) and Sigma. `internal/alert/detections_test.go` checks every field path against a real correlated alert, Sentinel identifiers against `SentinelRecord`, and template mappings against the alert. Breaking one field per file (5 mutations) made it fail each time. The rules have not been executed in the products themselves. |
+| 5. Key rotation | Not started | |

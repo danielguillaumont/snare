@@ -41,7 +41,7 @@ session and input responsible.
 | Decoy MCP server | Go | Standalone server that serves decoy tools |
 | Decoy safety engine | Python | Simulation harness that scores decoys before deployment (grows out of the kill test) |
 | Placement advisor | Go | Scores agents for untrusted input + private data + exfiltration path |
-| Alert pipeline | Go | OCSF events; webhook, Sentinel, Splunk, Elastic sinks (built in M4); Slack not yet |
+| Alert pipeline | Go | OCSF events; webhook, Sentinel, Splunk, Elastic (M4) and Slack (M4b) sinks; durable outbox, multi-tripwire correlation, Prometheus metrics, tested SIEM rules in `detections/` (M4c) |
 | Dashboard | Go, server-rendered (M4) | Tripwire inventory and touch timeline. Changed from Next.js: no JavaScript allows a CSP with no exceptions |
 
 ## Key metrics
