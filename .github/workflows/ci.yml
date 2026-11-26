@@ -38,6 +38,7 @@ jobs:
       matrix:
         target:
           - { pkg: ./internal/token, fn: FuzzFind }
+          - { pkg: ./internal/token, fn: FuzzScanMatchesRegexp }
           - { pkg: ./internal/listener, fn: FuzzHTTP }
           - { pkg: ./internal/listener, fn: FuzzDNS }
     steps:

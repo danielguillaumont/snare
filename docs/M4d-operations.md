@@ -66,13 +66,17 @@ The aim is reproducible benchmarks with the method written down next to the numb
 - **Token matching** (`internal/token`). `Match` on a request line with a valid v2 token,
   with junk of the same shape, and with 8 KiB of text that has no candidates. Cases with 1
   and 4 keys, because rotation multiplies MAC work.
-- **Recording a hit** (`internal/store`). `RecordHit` against a file database in WAL mode,
-  the production configuration, for both alerting and dedup-suppressed hits.
-- **End to end** (`internal/server`). A real server on loopback, with concurrent clients:
-  - **touches/s:** valid tokens, each stored and queued for delivery;
+- **End to end** (`internal/server`, `TestLoad`, opt-in with `SNARE_LOADTEST=1`). A real
+  server on loopback with a file database in WAL mode, the production configuration, and
+  concurrent clients. Each request comes from a distinct source address, as a distributed
+  sender's would. Scenarios:
+  - **touches/s:** valid tokens, each stored and queued for delivery in one transaction.
+    This covers `RecordHit`, so it has no separate benchmark.
   - **junk/s:** requests with no valid token, which is what the public port mostly sees.
 
   For both, p50 and p99 latency.
+- **Fix what the numbers show.** A finding that lets an unauthenticated sender degrade the
+  callback is a bug, fixed in this milestone with a before and after measurement.
 - Results go in [results-bench.md](results-bench.md) with the machine, Go version, command,
   run count and spread. Numbers are labelled as one developer laptop, not a capacity
   guarantee.
@@ -86,4 +90,4 @@ quotes no number that isn't in that file.
 |---|---|---|
 | 1. Dashboard | ✅ Built | `TestCriticalTouchesAndUndeliveredAlerts`. `RelatedTouches` is in the store isolation matrix. PR #14. |
 | 2. Sealed labels | ✅ Built | `internal/store/labels_test.go`. Labels and memos round-trip through every read path: `GetToken`, `ListTokens`, `RecordHit`, `AlertData` and `Related`. The raw column holds no plaintext. Legacy rows are migrated once, and a second run seals 0. A sealed label copied onto another token, within a tenant or across tenants, reads as the placeholder. With a wrong key or no key, a hit is still recorded and queued, with the placeholder label. `internal/server/sealed_labels_e2e_test.go`: a real server mints and touches a tripwire, and the webhook alert carries the real label and memo. The database and WAL files don't contain either. Mutation check: with sealing disabled in the server, that test fails. |
-| 3. Capacity | Not started | |
+| 3. Capacity | ✅ Measured | [results-bench.md](results-bench.md). Two availability bugs were found and fixed. (1) Token scanning used regexps at about 3 MB/s; a hand-written scanner is 15–18× faster on junk text and is fuzzed against the old regexps as an oracle. (2) Past 50,000 distinct sources, the per-IP rate limiter scanned its whole table under a lock for every new source: forged-token throughput fell from about 10,000 to 277 req/s. It is now a bounded two-generation table with O(1) work per request, and IPv6 is limited per /64. Durable commits (`synchronous=FULL`) cost 4× on touch throughput; that cost is kept, and the reasons are in the results. |

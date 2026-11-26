@@ -47,7 +47,7 @@ prevention (input isolation, tool permissions), not in place of it.
 
 | Threat | Control | Tested by |
 |---|---|---|
-| **Forged or guessed tokens flood the DB or trigger fake alerts** | 80-bit ids with an 80-bit truncated HMAC. MAC is checked before any DB access, constant-time, with a cap on checks per input. Per-IP rate limits. | `internal/token`, `internal/listener` tests |
+| **Forged or guessed tokens flood the DB or trigger fake alerts** | 80-bit ids with an 80-bit truncated HMAC. MAC is checked before any DB access, constant-time, with a cap on checks per input. Per-IP rate limits (per /64 for IPv6) in a bounded table with constant work per request. Measured: about 14,000 junk requests/s on one laptop, including past 50,000 distinct sources. | `internal/token`, `internal/listener` tests; [results-bench.md](results-bench.md) |
 | **Toucher learns it hit a honeypot** | Bland, uniform responses on HTTP and DNS. No product name in responses. | `internal/listener` tests |
 | **Honey values trip other companies' secret scanners** | No real provider prefixes; the optional custom prefix is checked against known ones. | `internal/token` tests |
 | **Tenant A reads or changes tenant B's data** | Every tenant query goes through a `TenantStore` bound to one tenant id. Foreign ids get the same 404 as missing ones. | Store isolation matrix (reflection over the interface) and source lint; API matrix (every route × 10 callers × own/foreign ids, with a leak check on bodies); dashboard cross-tenant tests; `scripts/smoke.sh` in CI |

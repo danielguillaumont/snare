@@ -151,7 +151,10 @@ CREATE INDEX IF NOT EXISTS events_source ON events(tenant_id, source_ip, at);
 func Open(path string) (*Store, error) {
 	dsn := path
 	if path != ":memory:" {
-		dsn = "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
+		// synchronous(FULL): a committed event and its queued alert survive power loss, not
+		// only a process crash. NORMAL is 4x faster on touches but can drop the last commits
+		// (docs/results-bench.md); a touch is an incident, so durability wins.
+		dsn = "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=synchronous(FULL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
 	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

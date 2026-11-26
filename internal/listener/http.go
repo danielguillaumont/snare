@@ -8,8 +8,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
-	"time"
 
 	"golang.org/x/time/rate"
 
@@ -33,23 +31,12 @@ type HTTP struct {
 	PerIPRate  rate.Limit // requests/second per source IP (default 5)
 	PerIPBurst int        // default 20
 
-	mu       sync.Mutex
-	limiters map[string]*ipLimiter
-}
-
-type ipLimiter struct {
-	lim  *rate.Limiter
-	seen time.Time
+	limiters limiterTable
 }
 
 const maxBody = 64 << 10
 
 func (h *HTTP) allow(ip string) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.limiters == nil {
-		h.limiters = map[string]*ipLimiter{}
-	}
 	r, b := h.PerIPRate, h.PerIPBurst
 	if r == 0 {
 		r = 5
@@ -57,21 +44,7 @@ func (h *HTTP) allow(ip string) bool {
 	if b == 0 {
 		b = 20
 	}
-	now := time.Now()
-	l, ok := h.limiters[ip]
-	if !ok {
-		if len(h.limiters) > 50_000 { // evict idle entries under a flood
-			for k, v := range h.limiters {
-				if now.Sub(v.seen) > 10*time.Minute {
-					delete(h.limiters, k)
-				}
-			}
-		}
-		l = &ipLimiter{lim: rate.NewLimiter(r, b)}
-		h.limiters[ip] = l
-	}
-	l.seen = now
-	return l.lim.Allow()
+	return h.limiters.get(limitKey(ip), r, b).Allow()
 }
 
 func (h *HTTP) clientIP(r *http.Request) string {

@@ -395,3 +395,18 @@ func readSource(t *testing.T) string {
 	}
 	return all.String()
 }
+
+func TestFileDatabaseIsDurable(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "d.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var mode string
+	var sync int
+	_ = s.db.QueryRow(`PRAGMA journal_mode`).Scan(&mode)
+	_ = s.db.QueryRow(`PRAGMA synchronous`).Scan(&sync)
+	if mode != "wal" || sync != 2 { // 2 = FULL
+		t.Fatalf("journal_mode=%s synchronous=%d, want wal and 2 (FULL)", mode, sync)
+	}
+}
