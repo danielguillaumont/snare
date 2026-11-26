@@ -32,7 +32,8 @@ before making claims.
    Splunk, Elastic or Microsoft Sentinel, and shown on a multi-tenant dashboard, where admins triage touches and disable tripwires.
 
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). What it defends against, and what it
-doesn't: [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).
+doesn't: [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md). Wiring it into Claude Desktop,
+Claude Code, other MCP clients and your SIEM: [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
 
 ## What's measured
 
@@ -95,6 +96,17 @@ In the demo, a simulated agent follows a canary link and then uses a honey API k
 tripwires from one source make the second touch **Critical**. From another terminal,
 `snare events` lists the touches and `snare triage` records what each turned out to be.
 
+**Without Go.** From v0.7.0, each [release](https://github.com/danielguillaumont/snare/releases)
+attaches static `snare` binaries for Linux, macOS and Windows (amd64 and arm64), with a
+`SHA256SUMS` file signed by the release workflow. Verify before running:
+
+```bash
+cosign verify-blob --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/danielguillaumont/snare/.github/workflows/release.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
 ## Status
 
 | Milestone | State |
@@ -108,6 +120,7 @@ tripwires from one source make the second touch **Critical**. From another termi
 | M4c reliability: durable alert outbox, metrics, correlation, SIEM rules, key rotation | ✅ Built |
 | M4d operations: dashboard severity, labels sealed at rest, measured capacity | ✅ Built |
 | M4e lifecycle: disable tripwires, triage touches, one-command demo | ✅ Built |
+| M4f distribution: signed release binaries, event retention, integration guide | ✅ Built |
 | M5 design partners | Not started |
 
 Full plan and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).

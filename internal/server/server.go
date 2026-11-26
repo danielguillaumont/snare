@@ -57,6 +57,10 @@ type Config struct {
 	SinkAllowPrivate bool
 	DashboardAddr    string
 	DashboardDev     bool // cookies without Secure, for http://localhost
+
+	// EventRetention deletes closed and muted events older than this (SNARE_EVENT_RETENTION,
+	// in days; docs/M4f-distribution.md §2). Zero keeps events forever.
+	EventRetention time.Duration
 }
 
 // FromEnv reads the SNARE_* variables documented in docs/M1-callback.md.
@@ -114,6 +118,9 @@ func FromEnv() (Config, error) {
 		}
 		c.SealKey = k
 	}
+	if c.EventRetention, err = retentionFromEnv(os.Getenv("SNARE_EVENT_RETENTION")); err != nil {
+		return Config{}, err
+	}
 	c.SinkAllowPrivate = os.Getenv("SNARE_SINK_ALLOW_PRIVATE") == "1"
 	c.DashboardAddr = os.Getenv("SNARE_DASHBOARD_ADDR")
 	c.DashboardDev = os.Getenv("SNARE_DASHBOARD_DEV") == "1"
@@ -137,6 +144,7 @@ type Server struct {
 
 	httpSrv, adminSrv, dashSrv *http.Server
 	dnsUDP, dnsTCP             *dns.Server
+	retention                  *retention
 
 	// Bound addresses, useful when configured with port 0.
 	HTTPAddr, AdminAddr, DNSAddr, DashboardAddr string
@@ -188,12 +196,14 @@ func Start(cfg Config, log *slog.Logger) (*Server, error) {
 		ob.Resolver = resolver // only when non-nil: a nil *TenantResolver in the interface is not nil
 	}
 	ob.Start()
+	ret := newRetention(st, cfg.EventRetention, reg, log)
 	window := cfg.DedupWindow
 	if window == 0 {
 		window = time.Minute
 	}
 	pipe := &alert.Pipeline{Store: st, Outbox: ob, Dedup: alert.NewDedup(window), Log: log, Metrics: am}
-	s := &Server{cfg: cfg, log: log, st: st, outbox: ob}
+	s := &Server{cfg: cfg, log: log, st: st, outbox: ob, retention: ret}
+	ret.start()
 
 	cleanup := func(e error) (*Server, error) { s.Shutdown(context.Background()); return nil, e }
 
@@ -327,6 +337,9 @@ func (s *Server) Shutdown(ctx context.Context) {
 		if d != nil {
 			_ = d.Shutdown()
 		}
+	}
+	if s.retention != nil {
+		s.retention.close()
 	}
 	if s.outbox != nil {
 		s.outbox.Close() // in-flight attempts finish; pending rows wait for the next start

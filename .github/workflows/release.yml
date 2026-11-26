@@ -1,8 +1,10 @@
 name: release
 
-# Publishes the server image to GHCR when a version tag is pushed. Nothing else triggers it.
-# The image carries an SBOM and SLSA provenance, and is signed keylessly with cosign using
-# this workflow's OIDC identity (verify: see deploy/README.md).
+# On a version tag, and nothing else:
+# - image: publishes the server image to GHCR with an SBOM and SLSA provenance, signed
+#   keylessly with cosign using this workflow's OIDC identity (verify: deploy/README.md).
+# - binaries: builds static snare binaries for six targets, signs SHA256SUMS keylessly with
+#   the same identity, and attaches everything to the GitHub release (docs/M4f-distribution.md).
 on:
   push:
     tags: ["v*"]
@@ -40,3 +42,26 @@ jobs:
         run: cosign sign --yes "$IMAGE_REF"
       - name: summary
         run: echo "Published and signed \`$IMAGE_REF\`" >> "$GITHUB_STEP_SUMMARY"
+
+  binaries:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # attach assets to the release
+      id-token: write # cosign keyless signing
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: sigstore/cosign-installer@v3
+      - name: build
+        run: VERSION="${GITHUB_REF_NAME#v}" scripts/build-release.sh
+      - name: sign checksums
+        run: cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
+      - name: attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --title "Snare ${GITHUB_REF_NAME#v}" --notes "Release notes to follow."
+          gh release upload "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.zip dist/SHA256SUMS dist/SHA256SUMS.sigstore.json --clobber
