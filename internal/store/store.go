@@ -17,8 +17,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	"github.com/danielguillaumont/snare/internal/seal"
 	_ "modernc.org/sqlite"
 )
 
@@ -84,7 +86,11 @@ type SinkRecord struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-type Store struct{ db *sql.DB }
+type Store struct {
+	db *sql.DB
+	// labels seals token labels and memos when set (SealLabels). Nil: stored as written.
+	labels atomic.Pointer[seal.Sealer]
+}
 
 const schema = `
 CREATE TABLE IF NOT EXISTS tenants (
@@ -239,11 +245,12 @@ type TenantStore interface {
 type tenantView struct {
 	db  *sql.DB
 	tid string
+	st  *Store
 }
 
 // Tenant returns the view for one tenant. It does not check that the tenant exists; callers
 // get a tenant id only from an authenticated key or the operator.
-func (s *Store) Tenant(id string) TenantStore { return &tenantView{db: s.db, tid: id} }
+func (s *Store) Tenant(id string) TenantStore { return &tenantView{db: s.db, tid: id, st: s} }
 
 func (v *tenantView) TenantID() string { return v.tid }
 
@@ -251,9 +258,17 @@ func (v *tenantView) CreateToken(ctx context.Context, t Token) error {
 	if t.CreatedAt.IsZero() {
 		t.CreatedAt = time.Now().UTC()
 	}
-	_, err := v.db.ExecContext(ctx,
+	label, err := v.st.sealField(v.tid, t.ID, "label", t.Label)
+	if err != nil {
+		return err
+	}
+	memo, err := v.st.sealField(v.tid, t.ID, "memo", t.Memo)
+	if err != nil {
+		return err
+	}
+	_, err = v.db.ExecContext(ctx,
 		`INSERT INTO tokens (id, tenant_id, kind, label, memo, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		t.ID, v.tid, t.Kind, t.Label, t.Memo, t.CreatedAt.UnixMilli())
+		t.ID, v.tid, t.Kind, label, memo, t.CreatedAt.UnixMilli())
 	if err != nil && strings.Contains(err.Error(), "UNIQUE") {
 		return ErrConflict
 	}
@@ -276,7 +291,7 @@ func (v *tenantView) GetToken(ctx context.Context, id string) (Token, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return Token{}, ErrNotFound
 	}
-	return t, err
+	return v.st.openToken(t), err
 }
 
 func (v *tenantView) ListTokens(ctx context.Context) ([]Token, error) {
@@ -292,7 +307,7 @@ func (v *tenantView) ListTokens(ctx context.Context) ([]Token, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, t)
+		out = append(out, v.st.openToken(t))
 	}
 	return out, rows.Err()
 }

@@ -78,8 +78,12 @@ prevention (input isolation, tool permissions), not in place of it.
   of scope for M4 by decision ([M4-saas.md](M4-saas.md)).
 - **Single node.** Availability matches one instance; there's no HA. Backups are daily
   snapshots, so up to 24 h of events can be lost.
-- **Token labels are stored in plaintext.** They describe where tripwires are planted, which
-  is mildly sensitive. A DB copy reveals them.
+- **Token metadata other than labels is plaintext.** Since M4d, labels and memos, which say
+  where each tripwire is planted, are sealed under `SNARE_SEAL_KEY` and bound to their tenant
+  and token ([M4d-operations.md](M4d-operations.md) §2). A copy of the database still shows
+  token ids, kinds and every event: source IPs, times and request details. Someone with both
+  the database and the seal key reads everything. Without `SNARE_SEAL_KEY`, labels are stored
+  as written.
 - **Not externally reviewed or pen-tested.** The controls above are tested by this repo's own
   tests only.
 - **The hosted deployment has never been applied.** The IaC is validated in CI, but no live
