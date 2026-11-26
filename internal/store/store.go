@@ -48,6 +48,8 @@ type Event struct {
 	SourceIP string    `json:"source_ip"`
 	Detail   string    `json:"detail"` // user agent + path, or DNS query name and type
 	At       time.Time `json:"at"`
+	// PreviousKey: the token verified under a retired signing key (M4c §5).
+	PreviousKey bool `json:"previous_key,omitempty"`
 }
 
 type Tenant struct {
@@ -128,6 +130,7 @@ CREATE TABLE IF NOT EXISTS sinks (
 var migrations = []struct{ table, column, ddl string }{
 	{"tokens", "tenant_id", `ALTER TABLE tokens ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`},
 	{"events", "tenant_id", `ALTER TABLE events ADD COLUMN tenant_id TEXT NOT NULL DEFAULT ''`},
+	{"events", "prev_key", `ALTER TABLE events ADD COLUMN prev_key INTEGER NOT NULL DEFAULT 0`},
 }
 
 const indexes = `
@@ -293,7 +296,7 @@ func (v *tenantView) ListTokens(ctx context.Context) ([]Token, error) {
 	return out, rows.Err()
 }
 
-const eventCols = `id, tenant_id, token_id, channel, source_ip, detail, at`
+const eventCols = `id, tenant_id, token_id, channel, source_ip, detail, at, prev_key`
 
 func scanEvents(rows *sql.Rows) ([]Event, error) {
 	defer rows.Close()
@@ -301,7 +304,7 @@ func scanEvents(rows *sql.Rows) ([]Event, error) {
 	for rows.Next() {
 		var e Event
 		var ms int64
-		if err := rows.Scan(&e.ID, &e.TenantID, &e.TokenID, &e.Channel, &e.SourceIP, &e.Detail, &ms); err != nil {
+		if err := rows.Scan(&e.ID, &e.TenantID, &e.TokenID, &e.Channel, &e.SourceIP, &e.Detail, &ms, &e.PreviousKey); err != nil {
 			return nil, err
 		}
 		e.At = time.UnixMilli(ms).UTC()

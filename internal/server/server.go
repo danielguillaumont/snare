@@ -31,7 +31,8 @@ import (
 )
 
 type Config struct {
-	Key           []byte // token HMAC key
+	Key           []byte   // token HMAC key: signs new tokens
+	PreviousKeys  [][]byte // retired token keys that still verify (SNARE_KEY_PREVIOUS)
 	AdminKey      []byte
 	HTTPAddr      string // public callback listener, e.g. ":8080"
 	DNSAddr       string // public DNS listener (UDP+TCP), e.g. ":53"; empty disables DNS
@@ -70,12 +71,27 @@ func FromEnv() (Config, error) {
 	if err != nil || len(key) < token.MinKeyBytes {
 		return Config{}, errors.New("SNARE_KEY must be hex, at least 32 bytes (run: snare keygen)")
 	}
+	var previous [][]byte
+	if v := strings.TrimSpace(os.Getenv("SNARE_KEY_PREVIOUS")); v != "" {
+		for _, part := range strings.Split(v, ",") {
+			k, err := hex.DecodeString(strings.TrimSpace(part))
+			if err != nil {
+				return Config{}, errors.New("SNARE_KEY_PREVIOUS must be comma-separated hex keys")
+			}
+			previous = append(previous, k)
+		}
+		base, _ := token.NewSigner(key)
+		if _, err := base.WithPrevious(previous...); err != nil {
+			return Config{}, fmt.Errorf("SNARE_KEY_PREVIOUS: %w", err)
+		}
+	}
 	adminKey := os.Getenv("SNARE_ADMIN_KEY")
 	if len(adminKey) < 24 {
 		return Config{}, errors.New("SNARE_ADMIN_KEY must be at least 24 characters (run: snare keygen)")
 	}
 	c := Config{
 		Key:           key,
+		PreviousKeys:  previous,
 		AdminKey:      []byte(adminKey),
 		HTTPAddr:      get("SNARE_HTTP_ADDR", ":8080"),
 		DNSAddr:       os.Getenv("SNARE_DNS_ADDR"),
@@ -134,6 +150,9 @@ func Start(cfg Config, log *slog.Logger) (*Server, error) {
 	}
 	signer, err := base.WithFormat(cfg.TokenPrefix, cfg.TokenEncoding)
 	if err != nil {
+		return nil, err
+	}
+	if signer, err = signer.WithPrevious(cfg.PreviousKeys...); err != nil {
 		return nil, err
 	}
 	st, err := store.Open(cfg.DBPath)
