@@ -124,7 +124,8 @@ sha256sum -c SHA256SUMS --ignore-missing
 | M4e lifecycle: disable tripwires, triage touches, one-command demo | ✅ Built |
 | M4f distribution: signed release binaries, event retention, integration guide | ✅ Built |
 | M6 gateway: decoys inside real MCP servers, egress detection, session ids | ✅ Built, about 29 µs per call ([results](docs/M6-gateway.md#results)) |
-| M7–M14 Snare in depth: layers, incidents, containment, attribution | Planned ([docs/DEPTH.md](docs/DEPTH.md)) |
+| M7 layers, stages and incidents: kill-chain severity, incident timeline, layer coverage | ✅ Built ([results](docs/M7-incidents.md#results)) |
+| M8–M14 Snare in depth: containment, attribution, context canaries, proof | Planned ([docs/DEPTH.md](docs/DEPTH.md)) |
 | M5 design partners | Not started |
 
 Full plan and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).
@@ -199,8 +200,12 @@ A tenant adds its own SIEM or chat with `POST /api/sinks` (`splunk_hec`, `elasti
   and `-retry ID` requeues one.
 - `GET /metrics` (operator key) exports Prometheus metrics. Alert rules are in
   [deploy/prometheus](deploy/prometheus/snare-rules.yml).
-- When one source touches two or more tripwires within an hour, the alert becomes
-  **Critical** and lists the others.
+- Each touch is labelled with the kill-chain stage it proves: steered, recon, collection,
+  exfiltration or use. Touches from one gateway session (or one source) form an
+  **incident**; `snare incidents -id N` and the dashboard show it as a timeline.
+- An alert is **Critical** when the incident or source has touched two or more tripwires
+  or stages, or when the touch is itself exfiltration or use. It lists the others
+  ([docs/M7-incidents.md](docs/M7-incidents.md)).
 - Ready-made rules for Splunk, Sentinel, Elastic and Sigma are in [detections/](detections/).
   CI checks them against the fields Snare emits. Design and evidence:
   [docs/M4c-reliability.md](docs/M4c-reliability.md).

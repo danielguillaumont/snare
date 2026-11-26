@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/danielguillaumont/snare/internal/egress"
+	"github.com/danielguillaumont/snare/internal/store"
 )
 
 func TestSlackWireFormatAndEscaping(t *testing.T) {
@@ -111,7 +112,7 @@ func TestSlackHeaderEscalatesForCorrelatedAlerts(t *testing.T) {
 		var cap captured
 		ts := httptest.NewServer(cap.handler(200))
 		a := sampleAlert()
-		a.Correlate(nil, c.distinct, time.Hour)
+		a.Correlate(store.Correlation{Tripwires: c.distinct}, "", time.Hour)
 		if err := (SlackSink{URL: ts.URL + "/services/T0/B0/xyz"}).Send(context.Background(), a); err != nil {
 			t.Fatal(err)
 		}

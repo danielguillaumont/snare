@@ -104,13 +104,29 @@ func (s *Store) RecordHit(ctx context.Context, e Event, alert bool) (tok Token, 
 		alert = false
 	}
 	e.Status = StatusOpen
+	e.Layer, e.Stage = Classify(tok.Kind, e.Via)
+	if len(e.Session) > maxSession {
+		e.Session = e.Session[:maxSession]
+	}
+	key := incidentKey(e)
+	if e.IncidentID, err = joinIncident(ctx, tx, e, key); err != nil {
+		return Token{}, Event{}, false, false, err
+	}
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO events (tenant_id, token_id, channel, source_ip, detail, at, prev_key, muted) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.TenantID, e.TokenID, e.Channel, e.SourceIP, e.Detail, e.At.UnixMilli(), e.PreviousKey, e.Muted)
+		`INSERT INTO events (tenant_id, token_id, channel, source_ip, detail, at, prev_key, muted, layer, stage, session_id, incident_key, incident_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.TenantID, e.TokenID, e.Channel, e.SourceIP, e.Detail, e.At.UnixMilli(), e.PreviousKey, e.Muted,
+		e.Layer, e.Stage, e.Session, key, e.IncidentID)
 	if err != nil {
 		return Token{}, Event{}, false, false, err
 	}
 	e.ID, _ = res.LastInsertId()
+	if e.IncidentID == 0 { // the first touch names the incident
+		e.IncidentID = e.ID
+		if _, err := tx.ExecContext(ctx, `UPDATE events SET incident_id = ? WHERE id = ?`, e.ID, e.ID); err != nil {
+			return Token{}, Event{}, false, false, err
+		}
+	}
 
 	if alert {
 		var pending int
@@ -230,61 +246,71 @@ func (o *Outbox) AlertData(ctx context.Context, eventID int64) (Token, Event, bo
 	return o.st.openToken(tok), ev, true, nil
 }
 
-// RelatedTouch is an earlier touch of a different tripwire by the same source.
+// RelatedTouch is an earlier touch of a different tripwire correlated with a touch.
 type RelatedTouch struct {
 	EventID int64
 	TokenID string
 	Kind    string
 	Label   string
+	Stage   string
 	At      time.Time
 }
 
-// Related returns, for event ev, the other tripwires the same source touched in the same
-// tenant during the window before it: the latest touch of each, newest first, at most limit.
-// distinct counts tripwires including ev's own. Only events recorded before ev count, so the
-// answer is the same on every retry of a delivery.
-func (o *Outbox) Related(ctx context.Context, ev Event, window time.Duration, limit int) (rel []RelatedTouch, distinct int, err error) {
+// Related correlates event ev with the events recorded before it (M7 §3): its incident's
+// earlier touches, plus the same source's touches in the tenant during the window before
+// it, which was the whole rule before M7. The session id comes from the callback, so it
+// can join touches but never hide one: a fresh session per touch still correlates by IP.
+// Events recorded before M7 (IncidentID 0) get the source rule alone, so a re-export of an
+// old finding doesn't change. Only events recorded before ev count, so the answer is the
+// same on every retry of a delivery.
+func (o *Outbox) Related(ctx context.Context, ev Event, window time.Duration, limit int) (Correlation, error) {
 	return related(ctx, o.st, ev, window, limit)
 }
 
 // RelatedTouches is Related for one of this tenant's own events. ev must belong to the
 // tenant; the query is scoped to the tenant either way.
-func (v *tenantView) RelatedTouches(ctx context.Context, ev Event, window time.Duration, limit int) ([]RelatedTouch, int, error) {
+func (v *tenantView) RelatedTouches(ctx context.Context, ev Event, window time.Duration, limit int) (Correlation, error) {
 	if ev.TenantID != v.tid { // the query below filters on tenant_id = ev.TenantID
-		return nil, 0, ErrNotFound
+		return Correlation{}, ErrNotFound
 	}
 	return related(ctx, v.st, ev, window, limit)
 }
 
-func related(ctx context.Context, st *Store, ev Event, window time.Duration, limit int) (rel []RelatedTouch, distinct int, err error) {
-	rows, err := st.db.QueryContext(ctx,
-		`SELECT e.id, e.token_id, e.at, COALESCE(t.kind, 'unknown'), COALESCE(t.label, '(unregistered token)')
-		   FROM events e LEFT JOIN tokens t ON t.id = e.token_id AND t.tenant_id = e.tenant_id
-		  WHERE e.tenant_id = ? AND e.source_ip = ? AND e.id < ? AND e.at >= ? AND e.token_id != ?
+func related(ctx context.Context, st *Store, ev Event, window time.Duration, limit int) (Correlation, error) {
+	const cols = `SELECT e.id, e.token_id, e.at, e.stage, COALESCE(t.kind, 'unknown'), COALESCE(t.label, '(unregistered token)')
+		   FROM events e LEFT JOIN tokens t ON t.id = e.token_id AND t.tenant_id = e.tenant_id`
+	rows, err := st.db.QueryContext(ctx, cols+`
+		  WHERE e.tenant_id = ? AND e.id < ?
+		    AND ((? != 0 AND e.incident_id = ?) OR (e.source_ip = ? AND e.at >= ?))
 		  ORDER BY e.id DESC LIMIT 1000`,
-		ev.TenantID, ev.SourceIP, ev.ID, ev.At.Add(-window).UnixMilli(), ev.TokenID)
+		ev.TenantID, ev.ID, ev.IncidentID, ev.IncidentID, ev.SourceIP, ev.At.Add(-window).UnixMilli())
 	if err != nil {
-		return nil, 0, err
+		return Correlation{}, err
 	}
 	defer rows.Close()
-	seen := map[string]bool{}
+	c := Correlation{Touches: 1}
+	seen := map[string]bool{ev.TokenID: true}
+	stages := map[string]bool{ev.Stage: true}
 	for rows.Next() {
 		var r RelatedTouch
 		var ms int64
-		if err := rows.Scan(&r.EventID, &r.TokenID, &ms, &r.Kind, &r.Label); err != nil {
-			return nil, 0, err
+		if err := rows.Scan(&r.EventID, &r.TokenID, &ms, &r.Stage, &r.Kind, &r.Label); err != nil {
+			return Correlation{}, err
 		}
+		c.Touches++
+		stages[r.Stage] = true
 		if seen[r.TokenID] {
 			continue
 		}
 		seen[r.TokenID] = true
 		r.Label = st.openField(ev.TenantID, r.TokenID, "label", r.Label, LabelUnreadable)
 		r.At = time.UnixMilli(ms).UTC()
-		if len(rel) < limit {
-			rel = append(rel, r)
+		if len(c.Related) < limit {
+			c.Related = append(c.Related, r)
 		}
 	}
-	return rel, len(seen) + 1, rows.Err()
+	c.Tripwires, c.Stages = len(seen), sortStages(stages)
+	return c, rows.Err()
 }
 
 // OutboxStats summarises the outbox for metrics.

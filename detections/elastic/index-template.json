@@ -35,7 +35,14 @@
             "detail": { "type": "text" },
             "event_id": { "type": "long" },
             "correlated_tripwires": { "type": "integer" },
-            "correlation_window": { "type": "keyword" }
+            "correlation_window": { "type": "keyword" },
+            "layer": { "type": "keyword" },
+            "stage": { "type": "keyword" },
+            "session_id": { "type": "keyword" },
+            "incident_id": { "type": "long" },
+            "correlated_stages": { "type": "keyword" },
+            "correlated_touches": { "type": "integer" },
+            "critical_because": { "type": "text" }
           }
         }
       }

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danielguillaumont/snare/internal/listener"
 	"github.com/danielguillaumont/snare/internal/store"
 	"github.com/danielguillaumont/snare/internal/token"
 )
@@ -116,6 +117,89 @@ func TestCorrelationDoesNotEscalate(t *testing.T) {
 	}
 }
 
+// M7 §3: each Critical rule on its own, and the High case.
+func TestSeverityRules(t *testing.T) {
+	const ip, sess = "198.51.100.7", "s0123456789ab"
+	setup := func(t *testing.T) *correlationEnv {
+		e := newCorrelationEnv(t)
+		for id, kind := range map[string]string{"decoy": "decoy_tool", "honey": "honey_credential", "instr": "canary_instruction"} {
+			if err := e.st.Tenant(e.a).CreateToken(context.Background(), store.Token{ID: id, Kind: kind, Label: id}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return e
+	}
+	hit := func(t *testing.T, e *correlationEnv, after time.Duration, tok, via, session string) Alert {
+		t.Helper()
+		e.now = e.t0.Add(after)
+		before := len(e.sink.alerts())
+		ctx := listener.WithContext(context.Background(), listener.Context{Via: via, Session: session})
+		if err := e.p.Hit(ctx, token.Match{ID: tok}, "http", ip, ""); err != nil {
+			t.Fatal(err)
+		}
+		drain(t, e.ob)
+		got := e.sink.alerts()
+		if len(got) != before+1 {
+			t.Fatalf("touch of %s produced %d alerts", tok, len(got)-before)
+		}
+		return got[len(got)-1]
+	}
+	critical := func(t *testing.T, a Alert, because string) {
+		t.Helper()
+		if a.SeverityID != 5 || !strings.Contains(a.Unmapped.CriticalBecause, because) || !strings.Contains(a.Message, because) {
+			t.Fatalf("want Critical because %q: severity %d, %+v", because, a.SeverityID, a.Unmapped)
+		}
+	}
+
+	t.Run("an isolated touch is High", func(t *testing.T) {
+		e := setup(t)
+		a := hit(t, e, 0, "decoy", "", sess)
+		if a.SeverityID != 4 || a.Unmapped.CriticalBecause != "" || a.Unmapped.Stage != "recon" || a.Unmapped.Layer != "tool" ||
+			a.Unmapped.SessionID != sess || a.Unmapped.IncidentID != a.Unmapped.EventID || a.Unmapped.CorrelatedTouches != 1 {
+			t.Fatalf("isolated decoy call: %+v", a.Unmapped)
+		}
+	})
+	t.Run("two tripwires", func(t *testing.T) {
+		e := setup(t)
+		hit(t, e, 0, "a1", "", "")
+		critical(t, hit(t, e, time.Minute, "a2", "", ""), "touched 2 tripwires")
+	})
+	t.Run("egress on its own", func(t *testing.T) {
+		e := setup(t)
+		a := hit(t, e, 0, "honey", "egress", sess)
+		critical(t, a, "left through a real tool")
+		if a.Unmapped.Stage != "exfiltration" || a.Unmapped.CorrelatedTripwires != 1 {
+			t.Fatalf("%+v", a.Unmapped)
+		}
+	})
+	t.Run("use on its own", func(t *testing.T) {
+		e := setup(t)
+		critical(t, hit(t, e, 0, "honey", "use", ""), "used as a credential")
+	})
+	t.Run("two stages, one tripwire", func(t *testing.T) {
+		// One tripwire, so rule 1 can't fire, and the touch itself is only collection: the
+		// stage rule is what keeps the incident Critical after the key was used.
+		e := setup(t)
+		hit(t, e, 0, "honey", "use", sess)
+		critical(t, hit(t, e, 2*time.Minute, "honey", "", sess), "moved through collection, use")
+	})
+	t.Run("same tripwire, same stage, twice", func(t *testing.T) {
+		e := setup(t)
+		hit(t, e, 0, "honey", "", sess)
+		if a := hit(t, e, 2*time.Minute, "honey", "", sess); a.SeverityID != 4 {
+			t.Fatalf("%+v", a.Unmapped)
+		}
+	})
+	t.Run("stages in kill-chain order", func(t *testing.T) {
+		e := setup(t)
+		hit(t, e, 0, "instr", "", sess)
+		a := hit(t, e, time.Minute, "decoy", "", sess)
+		if got := strings.Join(a.Unmapped.CorrelatedStages, ","); got != "steered,recon" {
+			t.Fatalf("stages %q", got)
+		}
+	})
+}
+
 // A retry rebuilds the alert from the store. Touches recorded after the event must not
 // change it, so every attempt sends the same body.
 func TestCorrelationIsStableAcrossRetries(t *testing.T) {
@@ -137,7 +221,7 @@ func TestCorrelationIsStableAcrossRetries(t *testing.T) {
 
 func TestCorrelatedAlertIsStillOCSF(t *testing.T) {
 	a := sampleAlert()
-	a.Correlate([]store.RelatedTouch{{EventID: 3, TokenID: "other", Label: "x", At: time.UnixMilli(1)}}, 2, time.Hour)
+	a.Correlate(store.Correlation{Related: []store.RelatedTouch{{EventID: 3, TokenID: "other", Label: "x", At: time.UnixMilli(1)}}, Tripwires: 2}, "", time.Hour)
 	raw, _ := json.Marshal(a)
 	var doc map[string]any
 	_ = json.Unmarshal(raw, &doc)

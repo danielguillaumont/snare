@@ -63,6 +63,15 @@ type Event struct {
 	TriageNote string     `json:"triage_note,omitempty"`
 	TriagedAt  *time.Time `json:"triaged_at,omitempty"`
 	TriagedBy  string     `json:"triaged_by,omitempty"`
+	// Layer and stage (M7 §1), set by RecordHit from the token's kind and Via.
+	Layer string `json:"layer,omitempty"`
+	Stage string `json:"stage,omitempty"`
+	// Session: the gateway session that reported the touch, if any.
+	Session string `json:"session,omitempty"`
+	// IncidentID: the id of the incident's first event; 0 for events recorded before M7.
+	IncidentID int64 `json:"incident_id,omitempty"`
+	// Via is input only: "egress" or "use" when the listener saw how the token arrived.
+	Via string `json:"-"`
 }
 
 // Triage statuses.
@@ -181,6 +190,11 @@ var migrations = []struct{ table, column, ddl string }{
 	{"events", "triage_note", `ALTER TABLE events ADD COLUMN triage_note TEXT NOT NULL DEFAULT ''`},
 	{"events", "triaged_at", `ALTER TABLE events ADD COLUMN triaged_at INTEGER`},
 	{"events", "triaged_by", `ALTER TABLE events ADD COLUMN triaged_by TEXT NOT NULL DEFAULT ''`},
+	{"events", "layer", `ALTER TABLE events ADD COLUMN layer TEXT NOT NULL DEFAULT ''`},
+	{"events", "stage", `ALTER TABLE events ADD COLUMN stage TEXT NOT NULL DEFAULT ''`},
+	{"events", "session_id", `ALTER TABLE events ADD COLUMN session_id TEXT NOT NULL DEFAULT ''`},
+	{"events", "incident_key", `ALTER TABLE events ADD COLUMN incident_key TEXT NOT NULL DEFAULT ''`},
+	{"events", "incident_id", `ALTER TABLE events ADD COLUMN incident_id INTEGER NOT NULL DEFAULT 0`},
 }
 
 const indexes = `
@@ -189,6 +203,8 @@ CREATE INDEX IF NOT EXISTS tokens_tenant ON tokens(tenant_id, created_at);
 CREATE INDEX IF NOT EXISTS events_tenant ON events(tenant_id, id);
 CREATE INDEX IF NOT EXISTS sinks_tenant ON sinks(tenant_id);
 CREATE INDEX IF NOT EXISTS events_source ON events(tenant_id, source_ip, at);
+CREATE INDEX IF NOT EXISTS events_incident_key ON events(tenant_id, incident_key, id);
+CREATE INDEX IF NOT EXISTS events_incident ON events(tenant_id, incident_id, id);
 `
 
 // Open opens (or creates and migrates) the database. Use ":memory:" in tests.
@@ -286,10 +302,12 @@ type TenantStore interface {
 	ListAudit(ctx context.Context, limit int) ([]AuditEntry, error)
 	ListDeliveries(ctx context.Context, state string, limit int) ([]Delivery, error)
 	RetryDelivery(ctx context.Context, id int64) error
-	RelatedTouches(ctx context.Context, ev Event, window time.Duration, limit int) ([]RelatedTouch, int, error)
+	RelatedTouches(ctx context.Context, ev Event, window time.Duration, limit int) (Correlation, error)
 	ListEventsFiltered(ctx context.Context, f EventFilter, limit int) ([]Event, error)
 	SetTokenDisabled(ctx context.Context, id string, disabled bool) error
 	TriageEvent(ctx context.Context, id int64, status, note string) error
+	ListIncidents(ctx context.Context, limit int) ([]Incident, error)
+	GetIncident(ctx context.Context, id int64) (Incident, []Event, error)
 }
 
 type tenantView struct {
@@ -362,7 +380,7 @@ func (v *tenantView) ListTokens(ctx context.Context) ([]Token, error) {
 	return out, rows.Err()
 }
 
-const eventCols = `id, tenant_id, token_id, channel, source_ip, detail, at, prev_key, muted, status, triage_note, triaged_at, triaged_by`
+const eventCols = `id, tenant_id, token_id, channel, source_ip, detail, at, prev_key, muted, status, triage_note, triaged_at, triaged_by, layer, stage, session_id, incident_id`
 
 func scanEvents(rows *sql.Rows) ([]Event, error) {
 	defer rows.Close()
@@ -372,7 +390,7 @@ func scanEvents(rows *sql.Rows) ([]Event, error) {
 		var ms int64
 		var triaged sql.NullInt64
 		if err := rows.Scan(&e.ID, &e.TenantID, &e.TokenID, &e.Channel, &e.SourceIP, &e.Detail, &ms, &e.PreviousKey,
-			&e.Muted, &e.Status, &e.TriageNote, &triaged, &e.TriagedBy); err != nil {
+			&e.Muted, &e.Status, &e.TriageNote, &triaged, &e.TriagedBy, &e.Layer, &e.Stage, &e.Session, &e.IncidentID); err != nil {
 			return nil, err
 		}
 		e.At = time.UnixMilli(ms).UTC()

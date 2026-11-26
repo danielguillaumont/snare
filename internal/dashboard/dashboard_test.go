@@ -3,6 +3,7 @@ package dashboard
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -138,6 +139,26 @@ func TestSignInAndTenantScopedPages(t *testing.T) {
 	_, body = e.get("/sinks", c)
 	if strings.Contains(body, "sk_beta") {
 		t.Fatal("sinks page leaks tenant B sink")
+	}
+	// Incidents (M7): A lists only its own, and B's incident answers like a missing one.
+	_, body = e.get("/incidents", c)
+	for _, leak := range []string{"198.51.100.9", "beta-secret-label"} {
+		if strings.Contains(body, leak) {
+			t.Fatalf("incidents page leaks tenant B data %q", leak)
+		}
+	}
+	evA, _ := e.st.Tenant(e.a.ID).ListEvents(context.Background(), "", 1)
+	evB, _ := e.st.Tenant(e.b.ID).ListEvents(context.Background(), "", 1)
+	if !strings.Contains(body, fmt.Sprintf("/incidents/%d", evA[0].IncidentID)) {
+		t.Fatalf("own incident not listed:\n%s", body)
+	}
+	if res, body := e.get(fmt.Sprintf("/incidents/%d", evA[0].IncidentID), c); res.StatusCode != 200 || !strings.Contains(body, "acme-detail") {
+		t.Fatalf("own incident page %d", res.StatusCode)
+	}
+	r1, b1 = e.get(fmt.Sprintf("/incidents/%d", evB[0].IncidentID), c)
+	r2, b2 = e.get("/incidents/999999", c)
+	if r1.StatusCode != 404 || r2.StatusCode != 404 || b1 != b2 {
+		t.Fatalf("cross-tenant incident: %d vs %d", r1.StatusCode, r2.StatusCode)
 	}
 	cb, _ := e.signIn(t, e.keyB)
 	_, body = e.get("/sinks", cb)

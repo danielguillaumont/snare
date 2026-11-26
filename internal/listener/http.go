@@ -71,9 +71,11 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	detail := r.Method + " " + r.URL.Path + " ua=" + r.UserAgent() + callbackContext(r)
+	q := r.URL.Query()
+	arrived := arrival(q.Get("layer"), q.Get("session"))
 	urlM, urlHit := h.Signer.Match(r.Host + " " + r.URL.Path + "?" + r.URL.RawQuery)
 	if urlHit {
-		if err := h.Recorder.Hit(r.Context(), urlM, "http", ip, detail); err != nil {
+		if err := h.Recorder.Hit(WithContext(r.Context(), arrived), urlM, "http", ip, detail); err != nil {
 			h.Log.Error("record http hit", "err", err)
 		}
 	}
@@ -82,7 +84,9 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// that a token arrived in a header is stored, never the header itself.
 	creds := r.Header.Get("Authorization") + " " + r.Header.Get("X-Api-Key") + " " + r.Header.Get("Api-Key")
 	if m, ok := h.Signer.Match(creds); ok && (!urlHit || m.ID != urlM.ID) {
-		if err := h.Recorder.Hit(r.Context(), m, "http", ip, detail+" via=credential-header"); err != nil {
+		used := arrived
+		used.Via = "use"
+		if err := h.Recorder.Hit(WithContext(r.Context(), used), m, "http", ip, detail+" via=credential-header"); err != nil {
 			h.Log.Error("record http hit", "err", err)
 		}
 	}

@@ -105,6 +105,18 @@ type Unmapped struct {
 	// The token verified under a retired signing key: replant this tripwire before that key
 	// is removed from SNARE_KEY_PREVIOUS.
 	VerifiedByPreviousKey bool `json:"verified_by_previous_key,omitempty"`
+	// Layer and stage of this touch, and its incident (docs/M7-incidents.md). Empty or zero
+	// for events recorded before M7.
+	Layer      string `json:"layer,omitempty"`
+	Stage      string `json:"stage,omitempty"`
+	SessionID  string `json:"session_id,omitempty"`
+	IncidentID int64  `json:"incident_id,omitempty"`
+	// Distinct stages and touch count over the correlated touches, as for
+	// CorrelatedTripwires. Stages are in kill-chain order.
+	CorrelatedStages  []string `json:"correlated_stages,omitempty"`
+	CorrelatedTouches int      `json:"correlated_touches,omitempty"`
+	// Why the alert is Critical, in words; empty when it is not.
+	CriticalBecause string `json:"critical_because,omitempty"`
 }
 
 // ProductVersion is reported in metadata.product.version.
@@ -146,6 +158,7 @@ func New(tok store.Token, ev store.Event) Alert {
 			TokenID: tok.ID, Kind: tok.Kind, Label: tok.Label, Memo: tok.Memo,
 			Channel: ev.Channel, Detail: ev.Detail, EventID: ev.ID,
 			CorrelatedTripwires: 1, VerifiedByPreviousKey: ev.PreviousKey,
+			Layer: ev.Layer, Stage: ev.Stage, SessionID: ev.Session, IncidentID: ev.IncidentID,
 		},
 	}
 	a.setStatus(ev)
@@ -172,27 +185,36 @@ func findingUID(tokenID string, eventID int64) string {
 	return fmt.Sprintf("snare-%s-%d", tokenID, eventID)
 }
 
-// Correlate records the other tripwires the same source touched shortly before. Two or more
-// distinct tripwires raise the alert to Critical: one touch can be an accident, a source
-// working through several traps is not. It never lowers severity or suppresses an alert.
-func (a *Alert) Correlate(related []store.RelatedTouch, distinct int, window time.Duration) {
+// Correlate records the other tripwires touched by the same incident or source shortly
+// before, and sets severity (store.Correlation.Critical). One touch can be an accident; an agent working
+// through several traps, or moving from one stage to the next, is not. It never lowers
+// severity or suppresses an alert.
+func (a *Alert) Correlate(c store.Correlation, stage string, window time.Duration) {
 	a.Unmapped.CorrelationWindow = window.String()
-	if distinct < 1 {
-		distinct = 1
-	}
+	distinct := max(c.Tripwires, 1)
 	a.Unmapped.CorrelatedTripwires = distinct
+	a.Unmapped.CorrelatedStages = c.Stages
+	a.Unmapped.CorrelatedTouches = c.Touches
 	a.FindingInfo.RelatedEvents = nil
-	for _, r := range related {
+	for _, r := range c.Related {
 		a.FindingInfo.RelatedEvents = append(a.FindingInfo.RelatedEvents, RelatedEvent{
 			UID: findingUID(r.TokenID, r.EventID), TypeUID: 200401, TypeName: "Detection Finding: Create",
 			Title: "Tripwire touched: " + r.Label, FirstSeenTime: r.At.UnixMilli(),
 		})
 	}
-	if distinct >= 2 {
-		a.SeverityID, a.Severity = 5, "Critical"
-		a.Message = fmt.Sprintf("%s (source touched %d tripwires within %s)", a.Message, distinct, window)
+	critical, why := c.Critical(stage)
+	if !critical {
+		return
+	}
+	a.SeverityID, a.Severity = 5, "Critical"
+	a.Unmapped.CriticalBecause = why
+	a.Message = fmt.Sprintf("%s (%s)", a.Message, why)
+	switch {
+	case distinct >= 2:
 		a.FindingInfo.Desc += fmt.Sprintf(" The same source touched %d different tripwires within %s, "+
 			"which is how an agent working through planted traps looks.", distinct, window)
+	default:
+		a.FindingInfo.Desc += " Critical because " + why + "."
 	}
 }
 

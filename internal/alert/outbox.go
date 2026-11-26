@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/danielguillaumont/snare/internal/listener"
 	"github.com/danielguillaumont/snare/internal/metrics"
 	"github.com/danielguillaumont/snare/internal/store"
 	"github.com/danielguillaumont/snare/internal/token"
@@ -366,11 +367,11 @@ const DefaultCorrelationWindow = time.Hour
 // Live delivery and export both use it, so a backfilled finding matches the one delivered.
 func Build(ctx context.Context, st *store.Store, tok store.Token, ev store.Event, window time.Duration) (Alert, error) {
 	a := New(tok, ev)
-	rel, distinct, err := st.Outbox().Related(ctx, ev, window, 10)
+	c, err := st.Outbox().Related(ctx, ev, window, 10)
 	if err != nil {
 		return Alert{}, fmt.Errorf("correlate: %w", err)
 	}
-	a.Correlate(rel, distinct, window)
+	a.Correlate(c, ev.Stage, window)
 	return a, nil
 }
 
@@ -443,9 +444,10 @@ func (p *Pipeline) Hit(ctx context.Context, tm token.Match, channel, sourceIP, d
 	at := now().UTC()
 	// Token ids are globally unique, so the key needs no tenant.
 	alert := p.Dedup.Allow(tokenID+"|"+channel+"|"+sourceIP, at)
+	lc := listener.ContextFrom(ctx)
 	_, ev, _, queued, err := p.Store.RecordHit(ctx, store.Event{
 		TokenID: tokenID, Channel: channel, SourceIP: sourceIP, Detail: truncate(detail, 512), At: at,
-		PreviousKey: tm.PreviousKey,
+		PreviousKey: tm.PreviousKey, Via: lc.Via, Session: lc.Session,
 	}, alert)
 	if err != nil {
 		return fmt.Errorf("record event: %w", err)

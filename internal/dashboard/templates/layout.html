@@ -9,7 +9,7 @@
 <body>{{end}}
 {{define "nav"}}<header class="bar">
   <a class="brand" href="/">snare</a>
-  <nav><a href="/">Tokens</a> <a href="/sinks">Sinks</a></nav>
+  <nav><a href="/">Tokens</a> <a href="/incidents">Incidents</a> <a href="/sinks">Sinks</a></nav>
   <span class="who">tenant <code>{{.TenantID}}</code> · {{.Role}}</span>
   <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Sign out</button></form>
 </header>{{end}}
