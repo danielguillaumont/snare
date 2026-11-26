@@ -28,7 +28,7 @@ Each row gets its own design doc before code.
 
 | # | Milestone | Scope | Exit criterion |
 |---|---|---|---|
-| M6 | Snare Gateway | MCP proxy in front of real servers: decoys injected into real tool lists, session ids on every touch, honey values detected in tool arguments | Forwards every message unchanged, tested end to end against a real MCP server; forwarding overhead measured and published |
+| **M6** ✅ | Snare Gateway | MCP proxy in front of real servers: decoys injected into real tool lists, session ids on every touch, honey values detected in tool arguments ([M6-gateway.md](M6-gateway.md)) | Forwards every message it doesn't own unchanged (tests and fuzzing); tested end to end against a scripted MCP server and a real Snare server; overhead measured. **Done 2026-11-26:** about 29 µs added per 1 KB call, 1.7 ms worst-case scan ([results](M6-gateway.md#results)). Third-party servers are not run in CI. No API spend. |
 | M7 | Layers, stages, incidents | Every tripwire has a layer (ingest, context, tool, data, egress, use) and a kill-chain stage; touches grouped into incidents by session; severity = deepest stage | Incidents in OCSF and as a dashboard timeline; `advise` reports layer coverage |
 | M8 | Containment (opt-in) | Gateway freezes a session's tool calls after a touch; audited release | Frozen within one call; forwarding unaffected when Snare's side is down. Opt-in, off by default (decided 2026-11-26, [DEPTH.md](DEPTH.md#decision-containment-is-opt-in)) |
 | M9 | Provenance and attribution | Per-session ledger of untrusted inputs (hashes, not content); per-source markers | A poisoned document is named in the alert as the last untrusted input before the touch |

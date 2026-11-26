@@ -1,0 +1,26 @@
+goos: windows
+goarch: amd64
+pkg: github.com/danielguillaumont/snare/internal/gateway
+cpu: 11th Gen Intel(R) Core(TM) i7-11370H @ 3.30GHz
+BenchmarkRoundTripDirect-8    	   65880	     29623 ns/op	  38.58 MB/s	    2276 B/op	      22 allocs/op
+BenchmarkRoundTripDirect-8    	   60996	     31947 ns/op	  35.78 MB/s	    2275 B/op	      22 allocs/op
+BenchmarkRoundTripDirect-8    	   65946	     22266 ns/op	  51.33 MB/s	    2275 B/op	      22 allocs/op
+BenchmarkRoundTripDirect-8    	   64633	     21031 ns/op	  54.35 MB/s	    2275 B/op	      22 allocs/op
+BenchmarkRoundTripDirect-8    	   50084	     24452 ns/op	  46.74 MB/s	    2275 B/op	      22 allocs/op
+BenchmarkRoundTripDirect-8    	   10000	    128616 ns/op	   8.89 MB/s	    2276 B/op	      22 allocs/op
+BenchmarkRoundTripDirect-8    	   45938	    103272 ns/op	  11.07 MB/s	    2275 B/op	      22 allocs/op
+BenchmarkRoundTripDirect-8    	   57986	     24993 ns/op	  45.73 MB/s	    2275 B/op	      22 allocs/op
+BenchmarkRoundTripDirect-8    	   60375	     23858 ns/op	  47.91 MB/s	    2275 B/op	      22 allocs/op
+BenchmarkRoundTripDirect-8    	   49143	     25357 ns/op	  45.08 MB/s	    2275 B/op	      22 allocs/op
+BenchmarkRoundTripGateway-8   	   19076	     54576 ns/op	  20.94 MB/s	    6249 B/op	      33 allocs/op
+BenchmarkRoundTripGateway-8   	   21451	     54272 ns/op	  21.06 MB/s	    6249 B/op	      33 allocs/op
+BenchmarkRoundTripGateway-8   	   22813	     53236 ns/op	  21.47 MB/s	    6242 B/op	      33 allocs/op
+BenchmarkRoundTripGateway-8   	   18076	    144232 ns/op	   7.92 MB/s	    6247 B/op	      33 allocs/op
+BenchmarkRoundTripGateway-8   	   21264	     57242 ns/op	  19.97 MB/s	    6248 B/op	      33 allocs/op
+BenchmarkRoundTripGateway-8   	   15507	     78743 ns/op	  14.52 MB/s	    6252 B/op	      33 allocs/op
+BenchmarkRoundTripGateway-8   	   22900	     58994 ns/op	  19.37 MB/s	    6240 B/op	      33 allocs/op
+BenchmarkRoundTripGateway-8   	   20059	     52857 ns/op	  21.62 MB/s	    6252 B/op	      33 allocs/op
+BenchmarkRoundTripGateway-8   	   27559	     48811 ns/op	  23.42 MB/s	    6255 B/op	      33 allocs/op
+BenchmarkRoundTripGateway-8   	   27837	     47877 ns/op	  23.87 MB/s	    6247 B/op	      33 allocs/op
+PASS
+ok  	github.com/danielguillaumont/snare/internal/gateway	43.620s

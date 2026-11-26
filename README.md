@@ -23,7 +23,9 @@ before making claims.
 
 1. **Plant.**
    - `snare plant` writes honey credentials and canary docs into repos and RAG corpora.
-   - `snare decoy-mcp` serves decoy tools beside the real ones.
+   - `snare decoy-mcp` serves decoy tools beside the real ones, or `snare gateway` wraps a
+     real MCP server and slips decoys into its own tool list. The gateway also catches a
+     honey value being sent out through any real tool.
    - Every tripwire gets its own unprefixed, HMAC-signed token.
 2. **Touch.** A steered agent calls a decoy, uses a honey key, follows a canary link, or
    resolves a canary hostname. Snare's HTTP and authoritative-DNS listeners verify the MAC
@@ -121,6 +123,8 @@ sha256sum -c SHA256SUMS --ignore-missing
 | M4d operations: dashboard severity, labels sealed at rest, measured capacity | ✅ Built |
 | M4e lifecycle: disable tripwires, triage touches, one-command demo | ✅ Built |
 | M4f distribution: signed release binaries, event retention, integration guide | ✅ Built |
+| M6 gateway: decoys inside real MCP servers, egress detection, session ids | ✅ Built, about 29 µs per call ([results](docs/M6-gateway.md#results)) |
+| M7–M14 Snare in depth: layers, incidents, containment, attribution | Planned ([docs/DEPTH.md](docs/DEPTH.md)) |
 | M5 design partners | Not started |
 
 Full plan and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).
@@ -211,6 +215,8 @@ bin\snare.exe plant repo   path\to\repo                 # .env.legacy with honey
 bin\snare.exe plant corpus path\to\kb-folder            # break-glass runbook with honey link, image, creds
 bin\snare.exe plant mcp    -config decoy-mcp.json -exclude list_api_keys   # 16 screened decoy tools
 bin\snare.exe decoy-mcp    -config decoy-mcp.json         # stdio MCP server (plant mcp prints the client snippet)
+bin\snare.exe plant gateway -config gw.json               # decoys inside a real server, styled like its tools
+bin\snare.exe gateway -config gw.json -- npx some-mcp-server   # wrap it; honey values in tool arguments alert too
 ```
 
 Before planting decoy tools, screen them against your own agent's tools with

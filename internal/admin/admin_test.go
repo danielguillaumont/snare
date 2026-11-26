@@ -244,6 +244,8 @@ func bodyFor(pattern string) any {
 		return alert.SinkConfig{Type: "splunk_hec", URL: "https://8.8.8.8", Token: "hec"}
 	case "POST /api/events/{id}/triage":
 		return TriageRequest{Status: store.StatusAcknowledged, Note: "looking"}
+	case "POST /api/fingerprints":
+		return FingerprintRequest{Salt: "isolation-matrix-salt"}
 	}
 	return nil
 }
@@ -262,6 +264,7 @@ var success = map[string]int{
 	"POST /api/tokens/{id}/disable":   204,
 	"POST /api/tokens/{id}/enable":    204,
 	"POST /api/events/{id}/triage":    204,
+	"POST /api/fingerprints":          200,
 	"GET /api/audit":                  200,
 	"GET /api/deliveries":             200,
 	"POST /api/deliveries/{id}/retry": 204,
@@ -472,5 +475,39 @@ func TestMetricsAndOperatorDeliveries(t *testing.T) {
 	e.call("GET", "/api/operator/audit?tenant="+dead[0].TenantID, opKey, "", nil, 200, &audit)
 	if len(audit) == 0 || audit[0].Action != store.ActDeliveryRetry || audit[0].Actor != "operator" {
 		t.Fatalf("retry not audited: %+v", audit)
+	}
+}
+
+func TestFingerprintsCoverOwnTokensOnly(t *testing.T) {
+	e := newEnv(t)
+	const salt = "test-salt-0123456789"
+	var a, b MintResponse
+	e.call("POST", "/api/tokens", e.a.admin, "", MintRequest{Kind: "honey_credential", Label: "a key"}, 201, &a)
+	e.call("POST", "/api/tokens", e.b.admin, "", MintRequest{Kind: "honey_credential", Label: "b key"}, 201, &b)
+	var resp FingerprintResponse
+	e.call("POST", "/api/fingerprints", e.a.admin, "", FingerprintRequest{Salt: salt}, 200, &resp)
+	set := token.FingerprintSet{}
+	for _, fp := range resp.Fingerprints {
+		set.Add(fp)
+	}
+	m := token.NewMatcher(salt, set)
+	if _, ok := m.Find(`{"body":"` + a.Token + `"}`); !ok {
+		t.Error("own token not recognized from its fingerprints")
+	}
+	if _, ok := m.Find(`{"body":"` + b.Token + `"}`); ok {
+		t.Error("other tenant's token recognized: fingerprints cross tenants")
+	}
+	for _, fp := range resp.Fingerprints {
+		if strings.Contains(a.Token, fp) || strings.Contains(fp, a.ID) {
+			t.Fatalf("fingerprint reveals the token or its id: %s", fp)
+		}
+	}
+	if resp.Tokens < 2 { // the fixture's canary_url plus this key
+		t.Errorf("tokens = %d", resp.Tokens)
+	}
+	for _, bad := range []string{"", "short", strings.Repeat("x", 65), "has space in it here"} {
+		if code, _ := e.do("POST", "/api/fingerprints", e.a.admin, "", FingerprintRequest{Salt: bad}); code != 400 {
+			t.Errorf("salt %q: %d, want 400", bad, code)
+		}
 	}
 }

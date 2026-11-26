@@ -81,6 +81,13 @@ func (c *Client) Triage(eventID int64, status, note string) error {
 	return c.do("POST", fmt.Sprintf("/api/events/%d/triage", eventID), TriageRequest{Status: status, Note: note}, nil)
 }
 
+// Fingerprints returns the tenant's token fingerprints under salt.
+func (c *Client) Fingerprints(salt string) (FingerprintResponse, error) {
+	var r FingerprintResponse
+	err := c.do("POST", "/api/fingerprints", FingerprintRequest{Salt: salt}, &r)
+	return r, err
+}
+
 func (c *Client) Tokens() ([]store.Token, error) {
 	var ts []store.Token
 	err := c.do("GET", "/api/tokens", nil, &ts)

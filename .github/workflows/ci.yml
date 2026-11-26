@@ -55,6 +55,7 @@ jobs:
           - { pkg: ./internal/token, fn: FuzzScanMatchesRegexp }
           - { pkg: ./internal/listener, fn: FuzzHTTP }
           - { pkg: ./internal/listener, fn: FuzzDNS }
+          - { pkg: ./internal/gateway, fn: FuzzRelay }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

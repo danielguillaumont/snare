@@ -124,6 +124,7 @@ func Routes() []Route {
 		{"GET /api/tokens/{id}", AccessViewer, h((*API).getToken)},
 		{"POST /api/tokens/{id}/disable", AccessAdmin, func(a *API) http.HandlerFunc { return a.setTokenDisabled(true) }},
 		{"POST /api/tokens/{id}/enable", AccessAdmin, func(a *API) http.HandlerFunc { return a.setTokenDisabled(false) }},
+		{"POST /api/fingerprints", AccessAdmin, h((*API).fingerprints)},
 		{"GET /api/events", AccessViewer, h((*API).listEvents)},
 		{"GET /api/events/export", AccessViewer, h((*API).exportEvents)},
 		{"POST /api/events/{id}/triage", AccessAdmin, h((*API).triageEvent)},
@@ -283,6 +284,56 @@ func (a *API) listTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, nonNil(toks))
+}
+
+// FingerprintRequest asks for the tenant's token fingerprints under a caller-chosen salt
+// (docs/M6-gateway.md §3).
+type FingerprintRequest struct {
+	Salt string `json:"salt"`
+}
+
+type FingerprintResponse struct {
+	Fingerprints []string `json:"fingerprints"`
+	Tokens       int      `json:"tokens"`
+}
+
+// fingerprints lets the gateway recognize this tenant's honey values without holding them.
+// Admin only: it is part of planting. The response holds salted hashes, never tokens.
+func (a *API) fingerprints(w http.ResponseWriter, r *http.Request) {
+	var req FingerprintRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req); err != nil || !validSalt(req.Salt) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "body: {\"salt\": 16-64 characters of [A-Za-z0-9_-]}"})
+		return
+	}
+	toks, err := a.view(r).ListTokens(r.Context())
+	if err != nil {
+		a.fail(w, "list tokens", err)
+		return
+	}
+	resp := FingerprintResponse{Fingerprints: []string{}}
+	for _, t := range toks {
+		bodies, err := a.Signer.Bodies(t.ID)
+		if err != nil {
+			continue // not a minted id (imported rows); it can't appear as a token
+		}
+		resp.Tokens++
+		for _, b := range bodies {
+			resp.Fingerprints = append(resp.Fingerprints, token.Fingerprint(req.Salt, b))
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func validSalt(s string) bool {
+	if len(s) < 16 || len(s) > 64 {
+		return false
+	}
+	for _, c := range s {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *API) getToken(w http.ResponseWriter, r *http.Request) {
