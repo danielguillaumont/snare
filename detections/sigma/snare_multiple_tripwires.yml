@@ -1,0 +1,32 @@
+title: Snare Several Tripwires Touched By One Source
+id: e31dfc7a-bf28-4804-b87c-1a75dc70f3e2
+status: experimental
+description: |
+  Snare correlated this touch with earlier touches of different tripwires by the same source
+  within its correlation window (default 1 h) and raised it to Critical. An agent working
+  through planted traps looks like this.
+references:
+  - https://github.com/danielguillaumont/snare/blob/main/docs/M4c-reliability.md
+author: Snare
+date: 2026-11-26
+tags:
+  - attack.credential-access
+  - attack.t1552
+logsource:
+  product: snare
+  category: detection_finding
+detection:
+  selection:
+    class_uid: 2004
+    metadata.product.name: Snare
+    unmapped.correlated_tripwires|gte: 2
+  condition: selection
+fields:
+  - src_endpoint.ip
+  - unmapped.correlated_tripwires
+  - unmapped.label
+  - finding_info.related_events
+  - metadata.tenant_uid
+falsepositives:
+  - Several people behind one NAT address each testing a tripwire
+level: critical
