@@ -121,6 +121,9 @@ func Routes() []Route {
 		{"POST /api/sinks", AccessAdmin, h((*API).createSink)},
 		{"DELETE /api/sinks/{id}", AccessAdmin, h((*API).deleteSink)},
 		{"POST /api/sinks/{id}/test", AccessAdmin, h((*API).testSink)},
+		{"GET /api/audit", AccessViewer, h((*API).listAudit)},
+		{"GET /api/operator/audit", AccessOperator, h((*API).operatorAudit)},
+		{"GET /api/operator/audit/verify", AccessOperator, h((*API).verifyAudit)},
 		{"GET /api/operator/tenants", AccessOperator, h((*API).listTenants)},
 		{"POST /api/operator/tenants", AccessOperator, h((*API).createTenant)},
 		{"POST /api/operator/tenants/{id}/disable", AccessOperator, func(a *API) http.HandlerFunc { return a.setDisabled(true) }},
@@ -186,7 +189,13 @@ func (a *API) auth(next http.Handler) http.Handler {
 			writeJSON(w, code, map[string]string{"error": msg})
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, p)))
+		actor := p.KeyID
+		if p.Operator {
+			actor = "operator"
+		}
+		// The actor rides in the context so store writes are attributed in the audit log.
+		ctx := store.WithActor(context.WithValue(r.Context(), ctxKey{}, p), actor)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -450,6 +459,51 @@ func (a *API) testSink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+}
+
+// --------------------------------------------------------------------------- audit
+
+func (a *API) listAudit(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	es, err := a.view(r).ListAudit(r.Context(), limit)
+	if err != nil {
+		a.fail(w, "list audit", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, nonNil(es))
+}
+
+func (a *API) operatorAudit(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	es, err := a.Store.Operator().ListAudit(r.Context(), r.URL.Query().Get("tenant"), limit)
+	if err != nil {
+		a.fail(w, "list audit", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, nonNil(es))
+}
+
+// AuditVerification is the answer of GET /api/operator/audit/verify.
+type AuditVerification struct {
+	OK       bool   `json:"ok"`
+	Records  int    `json:"records"`
+	Head     string `json:"head,omitempty"` // record this somewhere else to detect a rewritten chain
+	BrokenAt int64  `json:"broken_at,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+func (a *API) verifyAudit(w http.ResponseWriter, r *http.Request) {
+	head, n, err := a.Store.Operator().VerifyAudit(r.Context())
+	var be *store.AuditBrokenError
+	switch {
+	case errors.As(err, &be):
+		a.Log.Error("audit chain broken", "seq", be.Seq, "reason", be.Reason)
+		writeJSON(w, http.StatusOK, AuditVerification{Records: n, BrokenAt: be.Seq, Reason: be.Reason})
+	case err != nil:
+		a.fail(w, "verify audit", err)
+	default:
+		writeJSON(w, http.StatusOK, AuditVerification{OK: true, Records: n, Head: head})
+	}
 }
 
 // --------------------------------------------------------------------------- operator
