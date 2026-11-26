@@ -189,3 +189,69 @@ func FuzzVerifyNeverPanics(f *testing.F) {
 		_, _ = s.Find(in)
 	})
 }
+
+func TestRotationKeepsOldTokensWorking(t *testing.T) {
+	oldKey, newKey := bytes.Repeat([]byte{7}, 32), bytes.Repeat([]byte{8}, 32)
+	old, _ := NewSigner(oldKey)
+	oldTok, oldID, _ := old.Mint()
+
+	cur, _ := NewSigner(newKey)
+	rotated, err := cur.WithPrevious(oldKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newTok, newID, _ := rotated.Mint()
+	if _, err := old.Verify(newTok); err == nil {
+		t.Fatal("new tokens must be minted under the new key")
+	}
+	if m, ok := rotated.Match("GET /v1/" + oldTok); !ok || m.ID != oldID || !m.PreviousKey {
+		t.Fatalf("old token after rotation: %+v %v", m, ok)
+	}
+	if m, ok := rotated.Match("GET /v1/" + newTok); !ok || m.ID != newID || m.PreviousKey {
+		t.Fatalf("new token: %+v %v", m, ok)
+	}
+	if id, err := rotated.Verify(oldTok); err != nil || id != oldID {
+		t.Fatalf("Verify old token: %v", err)
+	}
+	// A token under a key that is no longer configured is rejected.
+	if _, ok := cur.Match(oldTok); ok {
+		t.Fatal("old token verified without its key configured")
+	}
+	// v1 tokens rotate too.
+	v1, _ := mintV1(old)
+	if m, ok := rotated.Match(v1); !ok || !m.PreviousKey {
+		t.Fatalf("v1 token after rotation: %+v %v", m, ok)
+	}
+}
+
+func TestWithPreviousValidation(t *testing.T) {
+	cur, _ := NewSigner(bytes.Repeat([]byte{1}, 32))
+	k := func(b byte) []byte { return bytes.Repeat([]byte{b}, 32) }
+	for name, keys := range map[string][][]byte{
+		"too many":        {k(2), k(3), k(4), k(5)},
+		"short":           {[]byte("short")},
+		"same as current": {k(1)},
+	} {
+		if _, err := cur.WithPrevious(keys...); err != ErrPrevious {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if _, err := cur.WithPrevious(k(2), k(3), k(4)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// With four keys, junk input still costs at most maxAttempts MACs.
+func TestAttemptCapHoldsAcrossKeys(t *testing.T) {
+	cur, _ := NewSigner(bytes.Repeat([]byte{1}, 32))
+	s, _ := cur.WithPrevious(bytes.Repeat([]byte{2}, 32), bytes.Repeat([]byte{3}, 32), bytes.Repeat([]byte{4}, 32))
+	junk := strings.Repeat("abcdefghijklmnopqrstuvwxyz234567", 64)
+	_, ok, attempts := s.find(junk)
+	if ok || attempts > maxAttempts || attempts < maxAttempts-4 {
+		t.Fatalf("ok=%v attempts=%d cap=%d", ok, attempts, maxAttempts)
+	}
+	_, _, one := cur.find(junk)
+	if one > maxAttempts {
+		t.Fatalf("single key: %d", one)
+	}
+}

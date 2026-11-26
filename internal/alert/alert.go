@@ -101,6 +101,9 @@ type Unmapped struct {
 	// including this one (docs/M4c-reliability.md §3). 1 means an isolated touch.
 	CorrelatedTripwires int    `json:"correlated_tripwires"`
 	CorrelationWindow   string `json:"correlation_window,omitempty"`
+	// The token verified under a retired signing key: replant this tripwire before that key
+	// is removed from SNARE_KEY_PREVIOUS.
+	VerifiedByPreviousKey bool `json:"verified_by_previous_key,omitempty"`
 }
 
 // ProductVersion is reported in metadata.product.version.
@@ -142,7 +145,7 @@ func New(tok store.Token, ev store.Event) Alert {
 		Unmapped: Unmapped{
 			TokenID: tok.ID, Kind: tok.Kind, Label: tok.Label, Memo: tok.Memo,
 			Channel: ev.Channel, Detail: ev.Detail, EventID: ev.ID,
-			CorrelatedTripwires: 1,
+			CorrelatedTripwires: 1, VerifiedByPreviousKey: ev.PreviousKey,
 		},
 	}
 }

@@ -27,7 +27,8 @@ type rec struct {
 	hits []hit
 }
 
-func (r *rec) Hit(_ context.Context, id, ch, ip, d string) error {
+func (r *rec) Hit(_ context.Context, tm token.Match, ch, ip, d string) error {
+	id := tm.ID
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.hits = append(r.hits, hit{id, ch, ip, d})

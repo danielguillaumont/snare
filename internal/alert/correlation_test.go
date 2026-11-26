@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/danielguillaumont/snare/internal/store"
+	"github.com/danielguillaumont/snare/internal/token"
 )
 
 // correlationEnv: tenants A and B, each with tokens; one operator sink that records alerts.
@@ -47,7 +48,7 @@ func (e *correlationEnv) touch(t *testing.T, after time.Duration, tok, channel, 
 	t.Helper()
 	e.now = e.t0.Add(after)
 	before := len(e.sink.alerts())
-	if err := e.p.Hit(context.Background(), tok, channel, ip, ""); err != nil {
+	if err := e.p.Hit(context.Background(), token.Match{ID: tok}, channel, ip, ""); err != nil {
 		t.Fatal(err)
 	}
 	drain(t, e.ob)
