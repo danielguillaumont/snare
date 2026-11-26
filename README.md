@@ -35,6 +35,13 @@ input that turned it.
 > adjacent exposures) and kept all 17 that M0 kept (800 runs, $4.02):
 > [docs/results-m3b.md](docs/results-m3b.md).
 >
+> **M3c on AgentDojo (external benchmark): safe, no detection evidence.** We added Snare decoys
+> to ETH Zurich's AgentDojo suites, unmodified: 1,671 runs on Haiku and Sonnet, $9.58.
+> 0/291 benign runs tripped (upper bound 1.3%), and utility moved −3.4 points (pre-registered
+> limit −5). No decoy was called in any of 1,089 injected runs either. The one injection that
+> worked only changes the agent's answer and uses no tool, so this run says nothing about
+> catching hijacks: [docs/results-m3c.md](docs/results-m3c.md).
+>
 > **M1 callback server and M2 tripwire kit are built** and covered by end-to-end tests
 > (plant → touch → signed alert). Not yet deployed as a hosted service.
 
@@ -71,6 +78,8 @@ python -m venv .venv
 .venv\Scripts\python -m killtest report results/latest
 .venv\Scripts\python -m killtest run --dry-run --arm m3 --runs 40          # M3a arms, offline
 .venv\Scripts\python -m killtest run --policy all --arm hunt --runs 200    # scripted attackers, $0
+pip install -e ".[agentdojo]"                                              # M3c only
+.venv\Scripts\python -m killtest dojo --dry-run --out results\dojo-dry     # AgentDojo suites, offline
 ```
 
 Live runs need Anthropic API credentials (`ANTHROPIC_API_KEY`, or `ant auth login`).

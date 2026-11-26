@@ -137,3 +137,18 @@ so far.
     injection task, drawn without replacement (194 + 140 = 334 runs, seed 98, cap $10).
   - The main-run caps total $14, as registered. If a run misses a cap, the shuffled order
     keeps the cut-off unbiased, and the skipped count is reported.
+- 2026-11-25, after the main run: **A1, A2 and A3 pass** ($9.58 spent, 0 errors). Results are
+  in [results-m3c.md](results-m3c.md). The criteria are unchanged.
+- 2026-11-25, after the main run: **exploratory follow-up added, not pre-registered.**
+  - **Why:** A2 passed (−3.4 points), but the paired losses lean one way: 13 lost and 3
+    gained, sign test p ≈ 0.02. In 4 of the 13, all in banking, the agent didn't call
+    `send_money` with decoys shown, though it did without them.
+  - **Hypothesis, stated before the follow-up runs:** security-themed decoys make agents more
+    cautious with money movement.
+  - **Design:** banking only, `plain` vs `benign`. Haiku runs 5 reps per user task and Sonnet
+    3, seeds 197 and 198, combined cap $2.50. The final answer text is now recorded, so a
+    refusal or a confirmation request is visible.
+  - This changes no criterion. The result is reported as exploratory.
+  - **Result ($1.37):** not supported. The losses come from agents asking for a payment date,
+    because the suite has no date tool. Their rate is the same with and without decoys
+    (Haiku 37/80 vs 36/80, Sonnet 19/48 vs 20/48).

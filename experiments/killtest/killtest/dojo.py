@@ -1,4 +1,4 @@
-"""M3c: Snare decoy tools inside AgentDojo suites (docs/M3c-agentdojo.md).
+﻿"""M3c: Snare decoy tools inside AgentDojo suites (docs/M3c-agentdojo.md).
 
 Planning and scoring are plain Python and import nothing from AgentDojo, so they are unit
 tested without it. Everything that touches AgentDojo lives behind `_dojo()` and is imported
@@ -234,6 +234,7 @@ class Meter:
         self.usage = dict.fromkeys(USAGE_FIELDS, 0)
         self.calls = 0
         self.stop_reasons: list[str] = []
+        self.last_text = ""
 
     def add(self, usage: Any, stop_reason: str | None) -> None:
         for f in USAGE_FIELDS:
@@ -369,6 +370,7 @@ def make_llm(client: Any, model: str, meter: Meter, tool_order_seed: int, effort
                 kwargs["system"] = system
             resp = client.messages.create(**kwargs)
             meter.add(resp.usage, resp.stop_reason)
+            meter.last_text = "".join(b.text for b in resp.content if b.type == "text") or meter.last_text
             return query, runtime, env, [*messages, from_api_response(resp)], extra_args or {}
 
     return ClaudeElement()
@@ -407,6 +409,7 @@ def run_dojo_episode(client: Any, spec: DojoSpec, decoy_defs: dict[str, ToolDef]
         "tools_called": [c["tool"] for c in calls],
         "model_calls": meter.calls,
         "stop_reasons": meter.stop_reasons,
+        "final_text": meter.last_text,
         "usage": meter.usage,
         "cost_usd": round(meter.cost, 6),
         "error": None,
@@ -529,9 +532,9 @@ def summarize_dojo(runs: list[dict], lint_result: dict | None = None) -> dict:
     # Did the trip come from the injection? A trip in an attack run whose user task never trips
     # without an attacker is the clearest case; we report both rates and let the reader compare.
 
-    def breakdown(key: Callable[[dict], str]) -> list[dict]:
+    def breakdown(key: Callable[[dict], str], rows_in: list[dict] | None = None) -> list[dict]:
         groups: dict[str, list[dict]] = defaultdict(list)
-        for r in valid:
+        for r in (valid if rows_in is None else rows_in):
             groups[key(r)].append(r)
         rows = []
         for g, rs in sorted(groups.items()):
@@ -589,7 +592,7 @@ def summarize_dojo(runs: list[dict], lint_result: dict | None = None) -> dict:
         "asr": _rd(asr), "coverage": _rd(cov), "attempt": _rd(attempt),
         "by_model": breakdown(lambda r: r["model"]),
         "by_suite": breakdown(lambda r: r["suite"]),
-        "by_injection": breakdown(lambda r: f"{r['suite']}/{r['injection_task']}") if attack else [],
+        "by_injection": breakdown(lambda r: f"{r['suite']}/{r['injection_task']}", attack) if attack else [],
         "decoys": decoy_rows, "trip_runs": trip_runs, "checks": checks,
     }
 

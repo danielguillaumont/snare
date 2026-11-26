@@ -8,7 +8,6 @@ import pytest
 
 from killtest import dojo
 from killtest.config import ToolDef
-from killtest.screen import catalog_decoys
 
 INDEX = {
     "banking": {"user": [f"user_task_{i}" for i in range(6)], "injection": ["injection_task_0", "injection_task_1"]},
@@ -150,3 +149,29 @@ def test_render_lists_every_trip():
     md = dojo.render_dojo(dojo.summarize_dojo(runs))
     assert "run 7" in md and "attack succeeded" in md and "decoy_a" in md
 
+def test_to_api_messages_merges_tool_results_and_keeps_thinking():
+    from types import SimpleNamespace as NS
+
+    tc = lambda i: NS(id=f"t{i}", function=f"f{i}", args={"x": i})  # noqa: E731
+    msgs = [
+        {"role": "system", "content": [{"type": "text", "content": "sys"}]},
+        {"role": "user", "content": [{"type": "text", "content": "hi"}]},
+        {"role": "assistant", "content": [{"type": "thinking", "content": "hm", "id": "sig"},
+                                          {"type": "text", "content": ""}], "tool_calls": [tc(1), tc(2)]},
+        {"role": "tool", "content": [{"type": "text", "content": "ok"}], "tool_call_id": "t1", "error": None},
+        {"role": "tool", "content": [{"type": "text", "content": ""}], "tool_call_id": "t2", "error": "Boom"},
+    ]
+    system, out = dojo.to_api_messages(msgs)
+    assert system == "sys"
+    assert [m["role"] for m in out] == ["user", "assistant", "user"]
+    assert out[1]["content"][0] == {"type": "thinking", "thinking": "hm", "signature": "sig"}
+    assert [b["type"] for b in out[1]["content"]] == ["thinking", "tool_use", "tool_use"]  # empty text dropped
+    assert out[2]["content"] == [
+        {"type": "tool_result", "tool_use_id": "t1", "is_error": False, "content": "ok"},
+        {"type": "tool_result", "tool_use_id": "t2", "is_error": True, "content": "Boom"},
+    ]
+
+
+def test_by_injection_lists_attack_runs_only():
+    s = dojo.summarize_dojo([_rec("attack", security=False, run_id=1), _rec("benign", run_id=2), _rec("plain", run_id=3)])
+    assert [r["group"] for r in s["by_injection"]] == ["banking/injection_task_0"]
