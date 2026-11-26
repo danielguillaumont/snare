@@ -236,7 +236,20 @@ type RelatedTouch struct {
 // distinct counts tripwires including ev's own. Only events recorded before ev count, so the
 // answer is the same on every retry of a delivery.
 func (o *Outbox) Related(ctx context.Context, ev Event, window time.Duration, limit int) (rel []RelatedTouch, distinct int, err error) {
-	rows, err := o.db.QueryContext(ctx,
+	return related(ctx, o.db, ev, window, limit)
+}
+
+// RelatedTouches is Related for one of this tenant's own events. ev must belong to the
+// tenant; the query is scoped to the tenant either way.
+func (v *tenantView) RelatedTouches(ctx context.Context, ev Event, window time.Duration, limit int) ([]RelatedTouch, int, error) {
+	if ev.TenantID != v.tid { // the query below filters on tenant_id = ev.TenantID
+		return nil, 0, ErrNotFound
+	}
+	return related(ctx, v.db, ev, window, limit)
+}
+
+func related(ctx context.Context, db *sql.DB, ev Event, window time.Duration, limit int) (rel []RelatedTouch, distinct int, err error) {
+	rows, err := db.QueryContext(ctx,
 		`SELECT e.id, e.token_id, e.at, COALESCE(t.kind, 'unknown'), COALESCE(t.label, '(unregistered token)')
 		   FROM events e LEFT JOIN tokens t ON t.id = e.token_id AND t.tenant_id = e.tenant_id
 		  WHERE e.tenant_id = ? AND e.source_ip = ? AND e.id < ? AND e.at >= ? AND e.token_id != ?

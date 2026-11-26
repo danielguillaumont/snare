@@ -233,6 +233,7 @@ type TenantStore interface {
 	ListAudit(ctx context.Context, limit int) ([]AuditEntry, error)
 	ListDeliveries(ctx context.Context, state string, limit int) ([]Delivery, error)
 	RetryDelivery(ctx context.Context, id int64) error
+	RelatedTouches(ctx context.Context, ev Event, window time.Duration, limit int) ([]RelatedTouch, int, error)
 }
 
 type tenantView struct {

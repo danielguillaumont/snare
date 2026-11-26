@@ -309,3 +309,39 @@ func TestShortSessionKeyRefused(t *testing.T) {
 		t.Fatal("accepted a short session key")
 	}
 }
+
+// A source that touches two of A's tripwires shows as critical, and a dead delivery to A's
+// sink shows as undelivered, on A's pages only. B's touch from the same IP never counts.
+func TestCriticalTouchesAndUndeliveredAlerts(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	va := e.st.Tenant(e.a.ID)
+	_ = va.CreateToken(ctx, store.Token{ID: "tok_a2", Kind: "decoy_tool", Label: "acme second"})
+	_, _, _, _, _ = e.st.RecordHit(ctx, store.Event{TokenID: "tok_b", Channel: "http", SourceIP: "203.0.113.5", At: time.Now()}, false)
+	c, _ := e.signIn(t, e.keyA)
+	if _, body := e.get("/", c); strings.Contains(body, "critical") {
+		t.Fatal("one tripwire per tenant must not be critical (B's touch from the same IP counted?)")
+	}
+	_, _, _, _, _ = e.st.RecordHit(ctx, store.Event{TokenID: "tok_a2", Channel: "http", SourceIP: "203.0.113.5", At: time.Now()}, true)
+	_ = va.CreateSink(ctx, store.SinkRecord{ID: "sk_acme", Type: "webhook", Config: []byte("x")})
+	ob := e.st.Outbox()
+	due, _ := ob.Due(ctx, time.Now().Add(time.Minute), 10)
+	_ = ob.Expand(ctx, due[0], []string{"sk_acme"}, time.Now())
+	rows, _ := va.ListDeliveries(ctx, "", 10)
+	_ = ob.MarkFailed(ctx, rows[0].ID, 20, time.Now(), "connection refused", true, time.Now())
+
+	_, body := e.get("/", c)
+	for _, want := range []string{"critical · 2 tripwires", `<b>1</b> critical`, `<b>1</b> undelivered`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("overview lacks %q", want)
+		}
+	}
+	_, body = e.get("/sinks", c)
+	if !strings.Contains(body, "undelivered") || !strings.Contains(body, "connection refused") {
+		t.Fatal("sinks page doesn't show the dead delivery")
+	}
+	cb, _ := e.signIn(t, e.keyB)
+	if _, body := e.get("/", cb); strings.Contains(body, "critical") || strings.Contains(body, "undelivered") {
+		t.Fatal("B sees A's critical touch or dead delivery")
+	}
+}

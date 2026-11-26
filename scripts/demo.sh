@@ -30,12 +30,16 @@ key=$("$bin" tenant key -tenant "$tenant" -role viewer | awk '/^key:/ {print $2}
 admin=$("$bin" tenant key -tenant "$tenant" -role admin | awk '/^key:/ {print $2}')
 
 mint() { SNARE_ADMIN_KEY=$admin "$bin" mint -kind "$1" -label "$2"; }
-mint honey_credential "billing-svc/.env: PAYMENTS_API_KEY" >/dev/null
+honey=$(mint honey_credential "billing-svc/.env: PAYMENTS_API_KEY" | awk '/^token:/ {print $2}')
 mint decoy_tool "support-agent MCP: export_customer_records" >/dev/null
 url=$(mint canary_url "KB article 4471: refund runbook link" | awk '/^url:/ {print $2}')
 
-# The "attack": an agent that read a poisoned ticket follows the canary link.
+# The "attack": an agent that read a poisoned ticket follows the canary link, then tries the
+# payments key it found in the repo. Two tripwires from one source: the second alert is
+# Critical.
 curl -s -o /dev/null -A "python-httpx/0.28 (agent)" "$url?ref=ticket-8812"
+sleep 1
+curl -s -o /dev/null -A "python-httpx/0.28 (agent)" -H "Authorization: Bearer $honey" "$SNARE_PUBLIC_URL/v1/charges"
 sleep 1
 
 cat <<EOF
@@ -45,7 +49,8 @@ Snare is running.
   Sign in with this viewer key (shown once):
     $key
 
-  Three tripwires are planted for tenant $tenant; one was just touched.
+  Three tripwires are planted for tenant $tenant. One source just touched two of them,
+  so the second touch is Critical.
   CLI view:   SNARE_ADMIN_KEY=$admin $bin events
   Server log: $work/server.log
 

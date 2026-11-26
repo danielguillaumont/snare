@@ -4,15 +4,18 @@
   <section class="stats">
     <div><b>{{len .Tokens}}</b> tokens</div>
     <div><b>{{.TouchedCount}}</b> touched</div>
+    {{if .Critical}}<div class="crit"><b>{{.Critical}}</b> critical</div>{{end}}
+    {{if .Dead}}<div class="crit"><a href="/sinks"><b>{{.Dead}}</b> undelivered</a></div>{{end}}
   </section>
   <h2>Recent touches</h2>
   {{if .Events}}
   <table>
-    <thead><tr><th>Time (UTC)</th><th>Token</th><th>Channel</th><th>Source</th><th>Detail</th></tr></thead>
+    <thead><tr><th>Time (UTC)</th><th>Token</th><th>Channel</th><th>Source</th><th>Detail</th><th>Severity</th></tr></thead>
     <tbody>
     {{range .Events}}<tr class="hit">
       <td>{{ts .At}}</td><td><a href="/tokens/{{.TokenID}}">{{if .Label}}{{.Label}}{{else}}{{.TokenID}}{{end}}</a></td>
       <td>{{.Channel}}</td><td><code>{{.SourceIP}}</code></td><td class="detail">{{.Detail}}</td>
+      <td>{{if ge .Correlated 2}}<span class="tag crit" title="this source touched {{.Correlated}} tripwires within an hour">critical · {{.Correlated}} tripwires</span>{{else}}<span class="tag hit">high</span>{{end}}{{if .PreviousKey}} <span class="tag" title="verified by a retired signing key: replant this tripwire">old key</span>{{end}}</td>
     </tr>{{end}}
     </tbody>
   </table>
