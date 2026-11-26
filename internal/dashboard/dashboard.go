@@ -229,6 +229,9 @@ func (d *Dashboard) login(w http.ResponseWriter, r *http.Request) {
 	s := session{TenantID: k.TenantID, KeyID: k.ID, Role: k.Role, Expires: d.now().Add(sessionTTL).Unix(), CSRF: randToken()}
 	d.setCookie(w, d.encode(s), int(sessionTTL.Seconds()))
 	http.SetCookie(w, &http.Cookie{Name: loginCSRFCookie, Value: "", Path: "/login", MaxAge: -1})
+	if err := d.Store.Audit(store.WithActor(r.Context(), k.ID), k.TenantID, store.ActSignIn, k.ID, "ip="+d.clientIP(r)); err != nil {
+		d.Log.Error("audit sign-in", "err", err)
+	}
 	d.Log.Info("dashboard sign-in", "tenant", k.TenantID, "key", k.ID)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "memory": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-memory"] },
+    "notes": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/me/docs"] },
+    "time": { "command": "uvx", "args": ["mcp-server-time"] }
+  }
+}

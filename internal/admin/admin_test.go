@@ -228,6 +228,7 @@ var success = map[string]int{
 	"POST /api/sinks":           201,
 	"DELETE /api/sinks/{id}":    204,
 	"POST /api/sinks/{id}/test": 200,
+	"GET /api/audit":            200,
 }
 
 func expect(c caller, rt Route, target string) int {
@@ -362,4 +363,45 @@ func TestSinkEndpointsRejectSSRFTargetsInProduction(t *testing.T) {
 func mustSealer() *seal.Sealer {
 	s, _ := seal.New(bytes.Repeat([]byte{2}, 32))
 	return s
+}
+
+// Changes made through the API are attributed to the key that made them, a tenant sees only
+// its own records, and the operator's verify endpoint reports an intact chain.
+func TestAuditThroughAPI(t *testing.T) {
+	e := newEnv(t)
+	var created struct {
+		ID string `json:"id"`
+	}
+	e.call("POST", "/api/sinks", e.a.admin, "", alert.SinkConfig{Type: "splunk_hec", URL: "https://8.8.8.8", Token: "hec"}, 201, &created)
+
+	var es []store.AuditEntry
+	e.call("GET", "/api/audit", e.a.viewer, "", nil, 200, &es)
+	if len(es) == 0 || es[0].Action != store.ActSinkCreate || es[0].Target != created.ID {
+		t.Fatalf("latest record %+v", es)
+	}
+	var adminKeyID string
+	if k, err := e.st.Authenticate(context.Background(), e.a.admin); err == nil {
+		adminKeyID = k.ID
+	}
+	if es[0].Actor != adminKeyID || adminKeyID == "" {
+		t.Fatalf("actor %q, want A's admin key %q", es[0].Actor, adminKeyID)
+	}
+	for _, x := range es {
+		if x.TenantID != e.a.id {
+			t.Fatalf("A sees another tenant's record %+v", x)
+		}
+	}
+
+	var v AuditVerification
+	e.call("GET", "/api/operator/audit/verify", opKey, "", nil, 200, &v)
+	if !v.OK || v.Records < 2 || len(v.Head) != 64 {
+		t.Fatalf("verify %+v", v)
+	}
+	var all []store.AuditEntry
+	e.call("GET", "/api/operator/audit?tenant="+e.b.id, opKey, "", nil, 200, &all)
+	for _, x := range all {
+		if x.TenantID != e.b.id {
+			t.Fatalf("tenant filter leaked %+v", x)
+		}
+	}
 }

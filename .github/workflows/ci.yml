@@ -19,6 +19,39 @@ jobs:
       - run: go vet ./...
       - run: go test -race ./...
 
+  govulncheck:
+    # Reports only vulnerabilities in code paths Snare actually calls.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+
+  fuzz:
+    # Short fuzzing of the untrusted-input paths. `go test` already replays the seed corpora
+    # on every run; this explores beyond them.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { pkg: ./internal/token, fn: FuzzFind }
+          - { pkg: ./internal/listener, fn: FuzzHTTP }
+          - { pkg: ./internal/listener, fn: FuzzDNS }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ${{ matrix.target.pkg }} -run '^$' -fuzz '^${{ matrix.target.fn }}$' -fuzztime 45s
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashers-${{ matrix.target.fn }}
+          path: "**/testdata/fuzz/**"
+
   smoke:
     # The deploy smoke test (scripts/smoke.sh) against a real server process: two tenants,
     # mint -> touch -> event, OCSF export, cross-tenant denial.

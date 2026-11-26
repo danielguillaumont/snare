@@ -176,6 +176,9 @@ func (s *Store) migrate() error {
 	if _, err := s.db.Exec(`UPDATE events SET tenant_id = COALESCE((SELECT tenant_id FROM tokens WHERE tokens.id = events.token_id), '') WHERE tenant_id = ''`); err != nil {
 		return fmt.Errorf("store: backfill events: %w", err)
 	}
+	if _, err := s.db.Exec(auditSchema); err != nil {
+		return fmt.Errorf("store: audit schema: %w", err)
+	}
 	if _, err := s.db.Exec(indexes); err != nil {
 		return fmt.Errorf("store: indexes: %w", err)
 	}
@@ -220,6 +223,7 @@ type TenantStore interface {
 	CreateSink(ctx context.Context, r SinkRecord) error
 	ListSinks(ctx context.Context) ([]SinkRecord, error)
 	DeleteSink(ctx context.Context, id string) error
+	ListAudit(ctx context.Context, limit int) ([]AuditEntry, error)
 }
 
 type tenantView struct {
@@ -342,8 +346,11 @@ func (v *tenantView) CreateSink(ctx context.Context, r SinkRecord) error {
 	if r.CreatedAt.IsZero() {
 		r.CreatedAt = time.Now().UTC()
 	}
-	_, err := v.db.ExecContext(ctx, `INSERT INTO sinks (id, tenant_id, type, config, created_at) VALUES (?, ?, ?, ?, ?)`,
-		r.ID, v.tid, r.Type, r.Config, r.CreatedAt.UnixMilli())
+	err := inTx(ctx, v.db, v.tid, ActSinkCreate, r.ID, "type="+r.Type, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO sinks (id, tenant_id, type, config, created_at) VALUES (?, ?, ?, ?, ?)`,
+			r.ID, v.tid, r.Type, r.Config, r.CreatedAt.UnixMilli())
+		return err
+	})
 	if err != nil && strings.Contains(err.Error(), "UNIQUE") {
 		return ErrConflict
 	}
@@ -371,14 +378,16 @@ func (v *tenantView) ListSinks(ctx context.Context) ([]SinkRecord, error) {
 }
 
 func (v *tenantView) DeleteSink(ctx context.Context, id string) error {
-	res, err := v.db.ExecContext(ctx, `DELETE FROM sinks WHERE id = ? AND tenant_id = ?`, id, v.tid)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return inTx(ctx, v.db, v.tid, ActSinkDelete, id, "", func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `DELETE FROM sinks WHERE id = ? AND tenant_id = ?`, id, v.tid)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
 }
 
 // --------------------------------------------------------------------------- hit path
@@ -443,7 +452,10 @@ func HashKey(key string) string {
 
 func (o *Operator) CreateTenant(ctx context.Context, name string) (Tenant, error) {
 	t := Tenant{ID: NewID("tn_"), Name: name, CreatedAt: time.Now().UTC()}
-	_, err := o.db.ExecContext(ctx, `INSERT INTO tenants (id, name, created_at) VALUES (?, ?, ?)`, t.ID, t.Name, t.CreatedAt.UnixMilli())
+	err := inTx(ctx, o.db, t.ID, ActTenantCreate, t.ID, "name="+t.Name, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO tenants (id, name, created_at) VALUES (?, ?, ?)`, t.ID, t.Name, t.CreatedAt.UnixMilli())
+		return err
+	})
 	return t, err
 }
 
@@ -484,14 +496,20 @@ func (o *Operator) SetTenantDisabled(ctx context.Context, id string, disabled bo
 	if disabled {
 		d = 1
 	}
-	res, err := o.db.ExecContext(ctx, `UPDATE tenants SET disabled = ? WHERE id = ?`, d, id)
-	if err != nil {
-		return err
+	act := ActTenantEnable
+	if disabled {
+		act = ActTenantDisable
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return inTx(ctx, o.db, id, act, id, "", func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE tenants SET disabled = ? WHERE id = ?`, d, id)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
 }
 
 // CreateAPIKey issues a key for a tenant. The plaintext is returned once and never stored.
@@ -504,8 +522,11 @@ func (o *Operator) CreateAPIKey(ctx context.Context, tenantID, role string) (str
 	}
 	plain := randID(APIKeyPrefix, 20)
 	k := APIKey{ID: NewID("ak_"), TenantID: tenantID, Role: role, CreatedAt: time.Now().UTC()}
-	_, err := o.db.ExecContext(ctx, `INSERT INTO api_keys (id, tenant_id, role, hash, created_at) VALUES (?, ?, ?, ?, ?)`,
-		k.ID, k.TenantID, k.Role, HashKey(plain), k.CreatedAt.UnixMilli())
+	err := inTx(ctx, o.db, tenantID, ActKeyIssue, k.ID, "role="+role, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO api_keys (id, tenant_id, role, hash, created_at) VALUES (?, ?, ?, ?, ?)`,
+			k.ID, k.TenantID, k.Role, HashKey(plain), k.CreatedAt.UnixMilli())
+		return err
+	})
 	if err != nil {
 		return "", APIKey{}, err
 	}
@@ -513,14 +534,24 @@ func (o *Operator) CreateAPIKey(ctx context.Context, tenantID, role string) (str
 }
 
 func (o *Operator) RevokeAPIKey(ctx context.Context, id string) error {
-	res, err := o.db.ExecContext(ctx, `UPDATE api_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`, time.Now().UnixMilli(), id)
+	var tenantID string
+	err := o.db.QueryRowContext(ctx, `SELECT tenant_id FROM api_keys WHERE id = ? AND revoked_at IS NULL`, id).Scan(&tenantID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
 	if err != nil {
 		return err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return inTx(ctx, o.db, tenantID, ActKeyRevoke, id, "", func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE api_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`, time.Now().UnixMilli(), id)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
 }
 
 func (o *Operator) ListAPIKeys(ctx context.Context, tenantID string) ([]APIKey, error) {

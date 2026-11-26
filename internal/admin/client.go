@@ -99,6 +99,24 @@ func (c *Client) RevokeKey(keyID string) error {
 	return c.do("DELETE", "/api/operator/keys/"+url.PathEscape(keyID), nil, nil)
 }
 
+// Audit lists audit records, newest first: the caller's tenant for a tenant key, or (with
+// the operator key) one tenant or, with tenantID "", everything.
+func (c *Client) Audit(tenantID string, limit int, operator bool) ([]store.AuditEntry, error) {
+	var es []store.AuditEntry
+	path := fmt.Sprintf("/api/audit?limit=%d", limit)
+	if operator {
+		path = fmt.Sprintf("/api/operator/audit?tenant=%s&limit=%d", url.QueryEscape(tenantID), limit)
+	}
+	err := c.do("GET", path, nil, &es)
+	return es, err
+}
+
+func (c *Client) VerifyAudit() (AuditVerification, error) {
+	var v AuditVerification
+	err := c.do("GET", "/api/operator/audit/verify", nil, &v)
+	return v, err
+}
+
 func (c *Client) SetTenantDisabled(tenantID string, disabled bool) error {
 	action := "enable"
 	if disabled {

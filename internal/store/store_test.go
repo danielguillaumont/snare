@@ -164,6 +164,21 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				t.Fatalf("A sees sinks %+v", sa)
 			}
 		},
+		"ListAudit": func(t *testing.T, f fixture) {
+			la, err := f.a.ListAudit(ctx, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// A's records: tenant create + sink create. None of B's.
+			if len(la) != 2 {
+				t.Fatalf("A sees %d audit records, want 2: %+v", len(la), la)
+			}
+			for _, e := range la {
+				if e.TenantID != f.a.TenantID() || strings.Contains(e.Target, "tok_b") {
+					t.Fatalf("A sees B's record %+v", e)
+				}
+			}
+		},
 		"DeleteSink": func(t *testing.T, f fixture) {
 			if err := f.a.DeleteSink(ctx, "sink_tok_b"); !errors.Is(err, ErrNotFound) {
 				t.Fatalf("A deleted B's sink: %v", err)
@@ -301,9 +316,22 @@ func TestMigratesPreM4Database(t *testing.T) {
 
 func readSource(t *testing.T) string {
 	t.Helper()
-	b, err := os.ReadFile("store.go")
+	// Every non-test source file in the package, so tenant-view methods can't hide elsewhere.
+	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(b)
+	var all strings.Builder
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		all.Write(b)
+		all.WriteString("\n")
+	}
+	return all.String()
 }

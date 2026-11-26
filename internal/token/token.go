@@ -216,8 +216,13 @@ func (s *Signer) Verify(tok string) (string, error) {
 // Find returns the ID of the first valid token embedded anywhere in text (host, path, query
 // name), whatever its prefix. Forged candidates are skipped, so they can't mask a real token.
 func (s *Signer) Find(text string) (id string, ok bool) {
+	id, ok, _ = s.find(text)
+	return id, ok
+}
+
+// find is Find plus the number of MAC checks spent, so tests can hold the cap.
+func (s *Signer) find(text string) (id string, ok bool, attempts int) {
 	text = strings.ToLower(text)
-	attempts := 0
 	try := func(f func() (string, error)) bool {
 		attempts++
 		if v, err := f(); err == nil {
@@ -228,10 +233,10 @@ func (s *Signer) Find(text string) (id string, ok bool) {
 	}
 	for _, c := range v1Candidate.FindAllString(text, 8) {
 		if attempts >= maxAttempts {
-			return "", false
+			return "", false, attempts
 		}
 		if try(func() (string, error) { return s.verifyV1(c) }) {
-			return id, true
+			return id, true, attempts
 		}
 	}
 	for _, scan := range []struct {
@@ -241,14 +246,14 @@ func (s *Signer) Find(text string) (id string, ok bool) {
 		for _, run := range scan.re.FindAllString(text, 16) {
 			for off := 0; off+scan.n <= len(run); off++ {
 				if attempts >= maxAttempts {
-					return "", false
+					return "", false, attempts
 				}
 				w := run[off : off+scan.n]
 				if try(func() (string, error) { return s.verifyBody(w) }) {
-					return id, true
+					return id, true, attempts
 				}
 			}
 		}
 	}
-	return "", false
+	return "", false, attempts
 }

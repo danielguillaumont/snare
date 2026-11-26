@@ -1,0 +1,5 @@
+{
+  "servers": {
+    "acme-ops": { "type": "http", "url": "https://ops.example.internal/mcp" }
+  }
+}

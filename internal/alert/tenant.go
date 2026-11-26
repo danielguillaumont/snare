@@ -18,7 +18,7 @@ import (
 // SinkConfig is what a tenant submits for one destination. It is sealed whole before it is
 // stored; only Public() ever leaves the server.
 type SinkConfig struct {
-	Type string `json:"type"` // webhook | splunk_hec | elastic | sentinel
+	Type string `json:"type"` // webhook | splunk_hec | elastic | sentinel | slack
 	URL  string `json:"url"`  // webhook / HEC base / Elastic base / Sentinel DCE
 
 	Secret string `json:"secret,omitempty"` // webhook HMAC secret
@@ -37,6 +37,9 @@ type SinkConfig struct {
 // Public is the config with every secret removed, for listing.
 func (c SinkConfig) Public() map[string]string {
 	m := map[string]string{"type": c.Type, "url": c.URL}
+	if c.Type == "slack" {
+		m["url"] = "https://" + slackHost + "/services/..." // the webhook URL is the credential
+	}
 	for k, v := range map[string]string{"index": c.Index, "rule_id": c.RuleID, "stream": c.Stream,
 		"azure_tenant_id": c.AzureTenant, "client_id": c.ClientID} {
 		if v != "" {
@@ -67,6 +70,11 @@ func (c SinkConfig) Validate(ctx context.Context, p egress.Policy) error {
 		err = need([2]string{"url", c.URL}, [2]string{"token", c.Token})
 	case "elastic":
 		err = need([2]string{"url", c.URL}, [2]string{"api_key", c.APIKey})
+	case "slack":
+		err = need([2]string{"url", c.URL})
+		if err == nil {
+			err = validSlackURL(c.URL)
+		}
 	case "sentinel":
 		err = need([2]string{"url", c.URL}, [2]string{"rule_id", c.RuleID}, [2]string{"stream", c.Stream},
 			[2]string{"azure_tenant_id", c.AzureTenant}, [2]string{"client_id", c.ClientID},
@@ -95,6 +103,8 @@ func (c SinkConfig) Build(client *http.Client) (Sink, error) {
 		return SplunkHECSink{URL: c.URL, Token: c.Token, Index: c.Index, Client: client}, nil
 	case "elastic":
 		return ElasticSink{URL: c.URL, Index: c.Index, APIKey: c.APIKey, Client: client}, nil
+	case "slack":
+		return SlackSink{URL: c.URL, Client: client}, nil
 	case "sentinel":
 		return NewSentinelSink(SentinelSink{Endpoint: c.URL, RuleID: c.RuleID, Stream: c.Stream, TenantID: c.AzureTenant,
 			ClientID: c.ClientID, ClientSecret: c.ClientSecret, Authority: c.Authority, Client: client}), nil

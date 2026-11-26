@@ -19,6 +19,12 @@ answers DNS for the callback zone itself.
 - Terraform ≥ 1.9, the AWS CLI, `openssl`, `curl` and `jq`.
 - A published image. Tagging `vX.Y.Z` runs `.github/workflows/release.yml`, which pushes
   `ghcr.io/danielguillaumont/snare:X.Y.Z`. Pin it by digest in `image`.
+- From v0.4.1, release images are signed keylessly and carry an SBOM. Check one before
+  deploying it:
+
+  ```bash
+  cosign verify ghcr.io/danielguillaumont/snare:X.Y.Z     --certificate-identity-regexp '^https://github.com/danielguillaumont/snare/.github/workflows/release.yml@refs/tags/v'     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+  ```
 
 Expected cost at the defaults: one t4g.small instance, 36 GB gp3 across the two volumes, an
 Elastic IP, and snapshots. Check current pricing for your region before applying.

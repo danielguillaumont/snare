@@ -80,4 +80,9 @@ code=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $kb" "$
 [ "$code" = 404 ] || fail "tenant B got $code for A's token, want 404"
 ok "tenant B cannot see A's token or events"
 
+acts=$(call "$ka" GET "/api/audit?limit=50" | jq -r '[.[].action] | join(",")')
+[[ $acts == *key.issue* && $acts == *tenant.create* ]] || fail "tenant A audit log missing records: $acts"
+[ "$(call "$SNARE_ADMIN_KEY" GET /api/operator/audit/verify | jq -r .ok)" = true ] || fail "audit chain does not verify"
+ok "audit log records the setup and its hash chain verifies"
+
 echo "PASS"
