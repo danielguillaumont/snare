@@ -29,7 +29,7 @@ before making claims.
    resolves a canary hostname. Snare's HTTP and authoritative-DNS listeners verify the MAC
    before doing anything else. The toucher gets a bland reply.
 3. **Alert.** The hit becomes an OCSF 1.3 Detection Finding. It is routed to a signed webhook,
-   Splunk, Elastic or Microsoft Sentinel, and shown on a read-only, multi-tenant dashboard.
+   Splunk, Elastic or Microsoft Sentinel, and shown on a multi-tenant dashboard, where admins triage touches and disable tripwires.
 
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). What it defends against, and what it
 doesn't: [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).

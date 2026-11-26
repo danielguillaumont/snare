@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -388,5 +389,97 @@ func TestTriageAndDisabledTripwiresShown(t *testing.T) {
 	}
 	if _, body := e.get("/tokens/tok_a", c); !strings.Contains(body, "2 touches of this tripwire were marked false positive") {
 		t.Fatal("no placement hint after two false positives")
+	}
+}
+
+func (e *env) post(path string, c *http.Cookie, form url.Values) *http.Response {
+	r := httptest.NewRequest("POST", path, strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if c != nil {
+		r.AddCookie(c)
+	}
+	return e.do(r)
+}
+
+// M4e §4: admins triage and disable from the page; viewers, missing CSRF and other tenants'
+// ids are refused, and what's allowed is audited under the signed-in key.
+func TestDashboardAdminActions(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	adminKeyA, ak, _ := e.st.Operator().CreateAPIKey(ctx, e.a.ID, store.RoleAdmin)
+	va := e.st.Tenant(e.a.ID)
+	evs, _ := va.ListEvents(ctx, "tok_a", 1)
+	evA := strconv.FormatInt(evs[0].ID, 10)
+	evsB, _ := e.st.Tenant(e.b.ID).ListEvents(ctx, "tok_b", 1)
+	evB := strconv.FormatInt(evsB[0].ID, 10)
+
+	adm, csrf := e.signIn(t, adminKeyA)
+	_, page := e.get("/tokens/tok_a", adm)
+	if !strings.Contains(page, `action="/tokens/tok_a/disable"`) || !strings.Contains(page, `/events/`+evA+`/triage"`) {
+		t.Fatal("admin page has no action forms")
+	}
+	viewer, vcsrf := e.signIn(t, e.keyA)
+	if _, vpage := e.get("/tokens/tok_a", viewer); strings.Contains(vpage, "/disable\"") || strings.Contains(vpage, "/triage\"") {
+		t.Fatal("viewer page shows action forms")
+	}
+
+	for name, c := range map[string]struct {
+		path   string
+		cookie *http.Cookie
+		form   url.Values
+		want   int
+	}{
+		"viewer disable":       {"/tokens/tok_a/disable", viewer, url.Values{"csrf": {vcsrf}}, 403},
+		"viewer triage":        {"/tokens/tok_a/events/" + evA + "/triage", viewer, url.Values{"csrf": {vcsrf}, "status": {"resolved"}}, 403},
+		"no csrf":              {"/tokens/tok_a/disable", adm, url.Values{}, 403},
+		"wrong csrf":           {"/tokens/tok_a/disable", adm, url.Values{"csrf": {vcsrf}}, 403},
+		"no session":           {"/tokens/tok_a/disable", nil, url.Values{"csrf": {csrf}}, 303},
+		"other tenant token":   {"/tokens/tok_b/disable", adm, url.Values{"csrf": {csrf}}, 404},
+		"other tenant event":   {"/tokens/tok_a/events/" + evB + "/triage", adm, url.Values{"csrf": {csrf}, "status": {"resolved"}}, 404},
+		"bad status":           {"/tokens/tok_a/events/" + evA + "/triage", adm, url.Values{"csrf": {csrf}, "status": {"closed"}}, 400},
+		"non-numeric event id": {"/tokens/tok_a/events/x/triage", adm, url.Values{"csrf": {csrf}, "status": {"resolved"}}, 404},
+	} {
+		if res := e.post(c.path, c.cookie, c.form); res.StatusCode != c.want {
+			t.Errorf("%s: %d, want %d", name, res.StatusCode, c.want)
+		}
+	}
+	if tb, _ := e.st.Tenant(e.b.ID).GetToken(ctx, "tok_b"); tb.Disabled {
+		t.Fatal("A's admin disabled B's tripwire")
+	}
+	if eb, _ := e.st.Tenant(e.b.ID).ListEvents(ctx, "tok_b", 1); eb[0].Status != store.StatusOpen {
+		t.Fatal("A's admin triaged B's event")
+	}
+	if ta, _ := va.GetToken(ctx, "tok_a"); ta.Disabled {
+		t.Fatal("a refused request changed state")
+	}
+
+	// Allowed: triage, then disable. Each redirects to the tripwire's page.
+	res := e.post("/tokens/tok_a/events/"+evA+"/triage", adm, url.Values{"csrf": {csrf}, "status": {"false_positive"}, "note": {"  pentest  "}})
+	if res.StatusCode != 303 || res.Header.Get("Location") != "/tokens/tok_a" {
+		t.Fatalf("triage: %d %s", res.StatusCode, res.Header.Get("Location"))
+	}
+	if res := e.post("/tokens/tok_a/disable", adm, url.Values{"csrf": {csrf}}); res.StatusCode != 303 {
+		t.Fatalf("disable: %d", res.StatusCode)
+	}
+	got, _ := va.ListEvents(ctx, "tok_a", 1)
+	if got[0].Status != store.StatusFalsePositive || got[0].TriageNote != "pentest" || got[0].TriagedBy != ak.ID {
+		t.Fatalf("triaged event: %+v", got[0])
+	}
+	if ta, _ := va.GetToken(ctx, "tok_a"); !ta.Disabled {
+		t.Fatal("not disabled")
+	}
+	_, page = e.get("/tokens/tok_a", adm)
+	if !strings.Contains(page, `action="/tokens/tok_a/enable"`) {
+		t.Fatal("disabled tripwire offers no enable button")
+	}
+	audit, _ := va.ListAudit(ctx, 20)
+	n := 0
+	for _, a := range audit {
+		if (a.Action == store.ActEventTriage || a.Action == store.ActTokenDisable) && a.Actor == ak.ID {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Fatalf("audited actions by the admin key: %d, want 2", n)
 	}
 }

@@ -74,10 +74,37 @@ detect anything":
 **Exit:** a test runs the demo with a short-lived context. It checks that the dashboard
 answers and shows a Critical touch, and that the temporary directory is removed afterwards.
 
+## 4. Triage and disable from the dashboard
+
+Until now the dashboard has been read-only: it shows the analyst, and the CLI acts. That
+split is fine for operators but slow for the person looking at a touch.
+
+- **Who.** Admin sessions only. A session signed in with an admin key gets triage controls
+  on a tripwire's page, and a disable or enable button. Viewer sessions see the same page
+  without the controls, and their POSTs answer 403.
+- **Forms.** Plain HTML forms, with no JavaScript (the CSP stays `default-src 'self'`).
+  - Each form carries the session's CSRF token, compared in constant time.
+  - The cookie is already `SameSite=Strict`.
+  - After a change the page redirects back to the tripwire's own page. The target is
+    built from the token id, never taken from the request.
+- **Same store calls as the API.** The forms call `TriageEvent` and `SetTokenDisabled` with
+  the signed-in key as the actor. They get the same validation, the same tenant scoping
+  (another tenant's id is a 404) and the same audit record.
+- **Design note.** [M4-saas.md](M4-saas.md) called the dashboard read-only to keep its CSRF
+  surface small. Adding these forms widens that surface on purpose, to admin sessions only,
+  with the controls above.
+
+**Exit:** dashboard tests cover:
+- An admin triages and disables from the page, and the store and audit log reflect it.
+- A viewer's POST is 403.
+- A missing or wrong CSRF token is 403.
+- Another tenant's event or token is 404.
+
 ## Results
 
 | Section | Status | Evidence |
 |---|---|---|
 | 1. Disabling | ✅ Built | `internal/store/lifecycle_test.go`: a touch of a disabled tripwire is stored and muted, with no delivery queued. Disabling twice keeps the original time, and re-enabling restores alerts. The audit log records each change with its actor. Store and API isolation matrices: another tenant gets 404 and nothing changes. `internal/server/lifecycle_e2e_test.go` runs disable → touch (no webhook) → enable → touch (webhook) on a real server. Mutation check: with muting removed, that test fails. |
 | 2. Triage | ✅ Built | `TestTriageEvent`: validation, the status filter, reopening, and an audit detail of `status=false_positive note_bytes=33` that never contains the note. `TestOCSFStatusFollowsTriage`: all 7 mappings, and severity is never changed. End to end: the export shows the muted touch as Suppressed (3) and the false positive as Resolved (4). Bad status values answer 400. Dashboard: `TestTriageAndDisabledTripwiresShown` covers a resolved critical that is no longer counted as open, the note shown, the disabled and muted tags, and the placement hint after 2 false positives. |
+| 4. Dashboard actions | ✅ Built | `TestDashboardAdminActions`. An admin triages (the note is trimmed) and disables from the page. Each action redirects to the tripwire's page, records the admin key as `triaged_by`, and adds 2 audit records under that key. Refused with nothing changed: viewer POSTs (403), a missing or wrong CSRF token (403), another tenant's token or event (404), a bad status (400). Viewers' pages carry no forms. Mutation checks: with the role check or the CSRF check removed, the test fails. |
 | 3. Demo | ✅ Built | `cmd/snare/demo_test.go` runs `snare demo` on free ports. It signs in to the dashboard with the printed key and finds "critical · 2 tripwires" and 3 tokens. After cancelling, the temporary directory is gone. Passes on Windows locally and on Linux in CI. |
