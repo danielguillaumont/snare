@@ -90,7 +90,7 @@ type Unmapped struct {
 }
 
 // ProductVersion is reported in metadata.product.version.
-var ProductVersion = "0.4.0"
+var ProductVersion = "0.5.0"
 
 // New builds an alert for one event on one token.
 func New(tok store.Token, ev store.Event) Alert {
