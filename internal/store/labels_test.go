@@ -71,9 +71,9 @@ func TestSealedLabelsRoundTripAndAreNotStoredInPlaintext(t *testing.T) {
 		t.Fatalf("AlertData: %+v %v", tok2, err)
 	}
 	_, ev2, _, _, _ := s.RecordHit(ctx, Event{TokenID: "tok_2", Channel: "http", SourceIP: "192.0.2.7", At: time.Now()}, true)
-	rel, n, err := s.Outbox().Related(ctx, ev2, time.Hour, 5)
-	if err != nil || n != 2 || len(rel) != 1 || rel[0].Label != label {
-		t.Fatalf("Related: %d %+v %v", n, rel, err)
+	c, err := s.Outbox().Related(ctx, ev2, time.Hour, 5)
+	if err != nil || c.Tripwires != 2 || len(c.Related) != 1 || c.Related[0].Label != label {
+		t.Fatalf("Related: %+v %v", c, err)
 	}
 }
 

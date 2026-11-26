@@ -50,9 +50,13 @@ func (s SlackSink) Send(ctx context.Context, a Alert) error {
 		return map[string]string{"type": "mrkdwn", "text": "*" + k + "*\n" + slackEscape(v)}
 	}
 	header, prefix := "Tripwire touched", "Snare tripwire touched: "
-	if u.CorrelatedTripwires >= 2 {
+	switch {
+	case u.CorrelatedTripwires >= 2:
 		header = fmt.Sprintf("CRITICAL: %d tripwires touched by one source", u.CorrelatedTripwires)
 		prefix = "Snare CRITICAL, several tripwires touched: "
+	case u.CriticalBecause != "":
+		header = "CRITICAL: " + u.CriticalBecause
+		prefix = "Snare CRITICAL: "
 	}
 	msg := map[string]any{
 		// Fallback for notifications; mrkdwn fields carry the same facts.

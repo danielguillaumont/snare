@@ -20,18 +20,21 @@ import (
 
 var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
 
-type hit struct{ id, channel, ip, detail string }
+type hit struct {
+	id, channel, ip, detail string
+	ctx                     Context
+}
 
 type rec struct {
 	mu   sync.Mutex
 	hits []hit
 }
 
-func (r *rec) Hit(_ context.Context, tm token.Match, ch, ip, d string) error {
+func (r *rec) Hit(ctx context.Context, tm token.Match, ch, ip, d string) error {
 	id := tm.ID
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.hits = append(r.hits, hit{id, ch, ip, d})
+	r.hits = append(r.hits, hit{id, ch, ip, d, ContextFrom(ctx)})
 	return nil
 }
 func (r *rec) all() []hit {
@@ -228,5 +231,37 @@ func TestHTTPCallbackContextIsAllowlisted(t *testing.T) {
 	}
 	if !strings.HasSuffix(got[1].detail, " session=ok_1.2-3") || strings.Contains(got[1].detail, "layer=") || strings.Contains(got[1].detail, "tool=") {
 		t.Errorf("bad values must be dropped: %q", got[1].detail)
+	}
+	// The same facts reach the recorder as structured context (M7 §1).
+	if got[0].ctx != (Context{Via: "egress", Session: "s1a2b3"}) || got[1].ctx != (Context{Session: "ok_1.2-3"}) {
+		t.Errorf("structured context: %+v / %+v", got[0].ctx, got[1].ctx)
+	}
+}
+
+// Only the gateway's egress layer is a via; other layer values never promote a touch, and a
+// credential header is "use" whatever the query says.
+func TestHTTPArrivalContext(t *testing.T) {
+	s := newSigner(t)
+	r := &rec{}
+	h := &HTTP{Signer: s, Recorder: r, Log: quiet}
+	urlTok, _, _ := s.Mint()
+	keyTok, _, _ := s.Mint()
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/v1/"+urlTok+"?layer=use&session=s1", nil))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/v1/"+urlTok+"?layer=tool", nil))
+	req := httptest.NewRequest("GET", "/v1/"+urlTok+"?layer=egress&session=s2", nil)
+	req.Header.Set("X-Api-Key", keyTok)
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	got := r.all()
+	want := []Context{{Session: "s1"}, {}, {Via: "egress", Session: "s2"}, {Via: "use", Session: "s2"}}
+	if len(got) != len(want) {
+		t.Fatalf("hits: %+v", got)
+	}
+	for i, w := range want {
+		if got[i].ctx != w {
+			t.Errorf("hit %d: context %+v, want %+v", i, got[i].ctx, w)
+		}
+	}
+	if ContextFrom(context.Background()) != (Context{}) {
+		t.Error("no context must read as the zero Context")
 	}
 }

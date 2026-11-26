@@ -216,13 +216,13 @@ func TestTenantIsolationMatrix(t *testing.T) {
 		"RelatedTouches": func(t *testing.T, f fixture) {
 			// Both fixture events come from 203.0.113.9; each tenant sees only its own.
 			eb, _ := f.b.ListEvents(ctx, "", 1)
-			if _, _, err := f.a.RelatedTouches(ctx, eb[0], time.Hour, 10); !errors.Is(err, ErrNotFound) {
+			if _, err := f.a.RelatedTouches(ctx, eb[0], time.Hour, 10); !errors.Is(err, ErrNotFound) {
 				t.Fatalf("A correlated B's event: %v", err)
 			}
 			forged := eb[0]
 			forged.TenantID = f.a.TenantID() // claim B's event is A's
-			rel, _, err := f.a.RelatedTouches(ctx, forged, time.Hour, 10)
-			for _, r := range rel {
+			c, err := f.a.RelatedTouches(ctx, forged, time.Hour, 10)
+			for _, r := range c.Related {
 				if r.TokenID == "tok_b" || strings.Contains(r.Label, "tok_b") {
 					t.Fatalf("forged event exposed B's touch: %+v", r)
 				}
@@ -232,11 +232,31 @@ func TestTenantIsolationMatrix(t *testing.T) {
 			}
 			// Another A touch from the same source sees A's earlier one, never B's.
 			_ = f.a.CreateToken(ctx, Token{ID: "tok_a2", Kind: "x", Label: "second"})
-			var n int
 			_, ev, _, _, _ := f.s.RecordHit(ctx, Event{TokenID: "tok_a2", Channel: "http", SourceIP: "203.0.113.9", At: time.Now()}, false)
-			rel, n, err = f.a.RelatedTouches(ctx, ev, time.Hour, 10)
-			if err != nil || n != 2 || len(rel) != 1 || rel[0].TokenID != "tok_a" {
-				t.Fatalf("A's own correlation: %d %+v %v", n, rel, err)
+			c, err = f.a.RelatedTouches(ctx, ev, time.Hour, 10)
+			if err != nil || c.Tripwires != 2 || len(c.Related) != 1 || c.Related[0].TokenID != "tok_a" {
+				t.Fatalf("A's own correlation: %+v %v", c, err)
+			}
+		},
+		"ListIncidents": func(t *testing.T, f fixture) {
+			// Both tenants' fixture touches share a source IP; each sees one incident, its own.
+			ins, err := f.a.ListIncidents(ctx, 10)
+			if err != nil || len(ins) != 1 || ins[0].Touches != 1 {
+				t.Fatalf("A's incidents: %+v %v", ins, err)
+			}
+			ea, _ := f.a.ListEvents(ctx, "", 1)
+			if ins[0].ID != ea[0].IncidentID {
+				t.Fatalf("A listed incident %d, its event is in %d", ins[0].ID, ea[0].IncidentID)
+			}
+		},
+		"GetIncident": func(t *testing.T, f fixture) {
+			eb, _ := f.b.ListEvents(ctx, "", 1)
+			if _, _, err := f.a.GetIncident(ctx, eb[0].IncidentID); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("A read B's incident: %v", err)
+			}
+			in, evs, err := f.b.GetIncident(ctx, eb[0].IncidentID)
+			if err != nil || in.ID != eb[0].IncidentID || len(evs) != 1 || evs[0].TokenID != "tok_b" {
+				t.Fatalf("B's own incident: %+v %+v %v", in, evs, err)
 			}
 		},
 		"ListEventsFiltered": func(t *testing.T, f fixture) {

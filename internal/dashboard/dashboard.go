@@ -265,9 +265,11 @@ func (d *Dashboard) render(w http.ResponseWriter, name string, data any) {
 type eventRow struct {
 	store.Event
 	Label string
-	// Distinct tripwires this source touched within the correlation window, as the alert
-	// computed it (docs/M4c-reliability.md §3). 2 or more is a Critical alert.
+	// Distinct correlated tripwires, as the alert computed it (docs/M4c-reliability.md §3,
+	// docs/M7-incidents.md §3), and whether the alert was Critical and why.
 	Correlated int
+	Critical   bool
+	Why        string
 }
 
 // correlationWindow matches alert.DefaultCorrelationWindow; the dashboard doesn't import the
@@ -294,19 +296,20 @@ func (d *Dashboard) overview(w http.ResponseWriter, r *http.Request, s session) 
 	touched := map[string]bool{}
 	critical, open := 0, 0
 	for _, e := range evs {
-		_, n, err := v.RelatedTouches(r.Context(), e, correlationWindow, 0)
+		c, err := v.RelatedTouches(r.Context(), e, correlationWindow, 0)
 		if err != nil {
 			d.fail(w, err)
 			return
 		}
+		crit, why := c.Critical(e.Stage)
 		isOpen := e.Status == store.StatusOpen && !e.Muted
 		if isOpen {
 			open++
-			if n >= 2 {
+			if crit {
 				critical++
 			}
 		}
-		rows = append(rows, eventRow{Event: e, Label: labels[e.TokenID], Correlated: n})
+		rows = append(rows, eventRow{Event: e, Label: labels[e.TokenID], Correlated: c.Tripwires, Critical: crit, Why: why})
 		touched[e.TokenID] = true
 	}
 	dead, err := v.ListDeliveries(r.Context(), store.DeliveryDead, 100)

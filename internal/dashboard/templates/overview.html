@@ -16,7 +16,7 @@
     {{range .Events}}<tr class="{{if or .Muted (ne .Status "open")}}done{{else}}hit{{end}}">
       <td>{{ts .At}}</td><td><a href="/tokens/{{.TokenID}}">{{if .Label}}{{.Label}}{{else}}{{.TokenID}}{{end}}</a></td>
       <td>{{.Channel}}</td><td><code>{{.SourceIP}}</code></td><td class="detail">{{.Detail}}</td>
-      <td>{{if ge .Correlated 2}}<span class="tag crit" title="this source touched {{.Correlated}} tripwires within an hour">critical · {{.Correlated}} tripwires</span>{{else}}<span class="tag hit">high</span>{{end}}{{if .PreviousKey}} <span class="tag" title="verified by a retired signing key: replant this tripwire">old key</span>{{end}}</td>
+      <td>{{if ge .Correlated 2}}<span class="tag crit" title="this source touched {{.Correlated}} tripwires within an hour">critical · {{.Correlated}} tripwires</span>{{else if .Critical}}<span class="tag crit" title="{{.Why}}">critical · {{.Stage}}</span>{{else}}<span class="tag hit">high</span>{{end}}{{if .PreviousKey}} <span class="tag" title="verified by a retired signing key: replant this tripwire">old key</span>{{end}}</td>
       <td>{{template "status" .Event}}</td>
     </tr>{{end}}
     </tbody>
