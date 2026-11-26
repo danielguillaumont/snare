@@ -3,6 +3,8 @@ package server
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -12,13 +14,17 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/miekg/dns"
 
 	"github.com/danielguillaumont/snare/internal/admin"
 	"github.com/danielguillaumont/snare/internal/alert"
+	"github.com/danielguillaumont/snare/internal/dashboard"
+	"github.com/danielguillaumont/snare/internal/egress"
 	"github.com/danielguillaumont/snare/internal/listener"
+	"github.com/danielguillaumont/snare/internal/seal"
 	"github.com/danielguillaumont/snare/internal/store"
 	"github.com/danielguillaumont/snare/internal/token"
 )
@@ -42,6 +48,13 @@ type Config struct {
 	// b32 by default. Old tokens verify whatever this is set to.
 	TokenPrefix   string
 	TokenEncoding token.Encoding
+
+	// M4 (docs/M4-saas.md). SealKey enables per-tenant sinks; DashboardAddr enables the
+	// dashboard. SinkAllowPrivate relaxes the SSRF guard (tests, single-team installs).
+	SealKey          []byte
+	SinkAllowPrivate bool
+	DashboardAddr    string
+	DashboardDev     bool // cookies without Secure, for http://localhost
 }
 
 // FromEnv reads the SNARE_* variables documented in docs/M1-callback.md.
@@ -77,6 +90,19 @@ func FromEnv() (Config, error) {
 		TokenPrefix:   os.Getenv("SNARE_TOKEN_PREFIX"),
 		TokenEncoding: token.Encoding(get("SNARE_TOKEN_ENCODING", string(token.B32))),
 	}
+	if v := os.Getenv("SNARE_SEAL_KEY"); v != "" {
+		k, err := hex.DecodeString(v)
+		if err != nil || len(k) != 32 {
+			return Config{}, errors.New("SNARE_SEAL_KEY must be 32 bytes of hex (run: snare keygen)")
+		}
+		c.SealKey = k
+	}
+	c.SinkAllowPrivate = os.Getenv("SNARE_SINK_ALLOW_PRIVATE") == "1"
+	c.DashboardAddr = os.Getenv("SNARE_DASHBOARD_ADDR")
+	c.DashboardDev = os.Getenv("SNARE_DASHBOARD_DEV") == "1"
+	if c.DashboardAddr != "" && c.DashboardDev && !strings.HasPrefix(c.DashboardAddr, "127.0.0.1:") && !strings.HasPrefix(c.DashboardAddr, "localhost:") {
+		return Config{}, errors.New("SNARE_DASHBOARD_DEV=1 (cookies without Secure) is only allowed on a loopback address")
+	}
 	if c.DNSAddr != "" && c.Zone == "" {
 		return Config{}, errors.New("SNARE_ZONE is required when SNARE_DNS_ADDR is set")
 	}
@@ -92,11 +118,11 @@ type Server struct {
 	st   *store.Store
 	disp *alert.Dispatcher
 
-	httpSrv, adminSrv *http.Server
-	dnsUDP, dnsTCP    *dns.Server
+	httpSrv, adminSrv, dashSrv *http.Server
+	dnsUDP, dnsTCP             *dns.Server
 
 	// Bound addresses, useful when configured with port 0.
-	HTTPAddr, AdminAddr, DNSAddr string
+	HTTPAddr, AdminAddr, DNSAddr, DashboardAddr string
 }
 
 // Start opens the store and starts all listeners. It returns once they are accepting.
@@ -117,7 +143,19 @@ func Start(cfg Config, log *slog.Logger) (*Server, error) {
 	if cfg.WebhookURL != "" {
 		sinks = append(sinks, alert.WebhookSink{URL: cfg.WebhookURL, Secret: cfg.WebhookSecret})
 	}
-	disp := alert.NewDispatcher(log, alert.DispatcherOpts{}, sinks...)
+	policy := egress.Policy{AllowPrivate: cfg.SinkAllowPrivate}
+	var sealer *seal.Sealer
+	var resolver *alert.TenantResolver
+	dopts := alert.DispatcherOpts{}
+	if cfg.SealKey != nil {
+		if sealer, err = seal.New(cfg.SealKey); err != nil {
+			st.Close()
+			return nil, err
+		}
+		resolver = &alert.TenantResolver{Store: st, Sealer: sealer, Client: policy.Client(10 * time.Second), Log: log}
+		dopts.Resolver = resolver
+	}
+	disp := alert.NewDispatcher(log, dopts, sinks...)
 	window := cfg.DedupWindow
 	if window == 0 {
 		window = time.Minute
@@ -144,9 +182,26 @@ func Start(cfg Config, log *slog.Logger) (*Server, error) {
 		return cleanup(fmt.Errorf("admin listen: %w", err))
 	}
 	s.AdminAddr = adminLn.Addr().String()
-	api := &admin.API{Key: cfg.AdminKey, Signer: signer, Store: st, PublicURL: cfg.PublicURL, URLPath: cfg.URLPath, Zone: cfg.Zone, Log: log}
+	api := &admin.API{Key: cfg.AdminKey, Signer: signer, Store: st, PublicURL: cfg.PublicURL, URLPath: cfg.URLPath, Zone: cfg.Zone, Log: log,
+		Sealer: sealer, Egress: policy, Resolver: resolver}
 	s.adminSrv = &http.Server{Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second}
 	go s.serveHTTP(s.adminSrv, adminLn, "admin")
+
+	if cfg.DashboardAddr != "" {
+		d := &dashboard.Dashboard{Store: st, SessionKey: deriveKey(cfg.Key, "snare-dashboard-session-key-v1"), Dev: cfg.DashboardDev, TrustProxy: cfg.TrustProxy, Log: log}
+		h, err := d.Handler()
+		if err != nil {
+			return cleanup(err)
+		}
+		dashLn, err := net.Listen("tcp", cfg.DashboardAddr)
+		if err != nil {
+			return cleanup(fmt.Errorf("dashboard listen: %w", err))
+		}
+		s.DashboardAddr = dashLn.Addr().String()
+		s.dashSrv = &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
+			WriteTimeout: 15 * time.Second, MaxHeaderBytes: 16 << 10}
+		go s.serveHTTP(s.dashSrv, dashLn, "dashboard")
+	}
 
 	if cfg.DNSAddr != "" {
 		h := &listener.DNS{Zone: cfg.Zone, AnswerIP: cfg.AnswerIP, Signer: signer, Recorder: pipe, Log: log}
@@ -165,7 +220,8 @@ func Start(cfg Config, log *slog.Logger) (*Server, error) {
 		<-started
 	}
 
-	log.Info("snare started", "callback", s.HTTPAddr, "admin", s.AdminAddr, "dns", s.DNSAddr, "zone", cfg.Zone, "webhook", cfg.WebhookURL != "")
+	log.Info("snare started", "callback", s.HTTPAddr, "admin", s.AdminAddr, "dns", s.DNSAddr, "dashboard", s.DashboardAddr,
+		"tenant_sinks", sealer != nil, "zone", cfg.Zone, "webhook", cfg.WebhookURL != "")
 	return s, nil
 }
 
@@ -230,7 +286,7 @@ func (s *Server) serveHTTP(srv *http.Server, ln net.Listener, name string) {
 
 // Shutdown stops listeners, drains queued alerts and closes the store.
 func (s *Server) Shutdown(ctx context.Context) {
-	for _, h := range []*http.Server{s.httpSrv, s.adminSrv} {
+	for _, h := range []*http.Server{s.httpSrv, s.adminSrv, s.dashSrv} {
 		if h != nil {
 			_ = h.Shutdown(ctx)
 		}
@@ -246,4 +302,12 @@ func (s *Server) Shutdown(ctx context.Context) {
 	if s.st != nil {
 		_ = s.st.Close()
 	}
+}
+
+// deriveKey gives each use of the master key its own subkey, so the dashboard's session MAC can
+// never be confused with a token MAC even though both come from SNARE_KEY.
+func deriveKey(master []byte, label string) []byte {
+	m := hmac.New(sha256.New, master)
+	m.Write([]byte(label))
+	return m.Sum(nil)
 }

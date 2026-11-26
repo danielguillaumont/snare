@@ -59,7 +59,7 @@ func TestPipelineStoresEveryEventButDedupsAlerts(t *testing.T) {
 	ctx := context.Background()
 	st, _ := store.Open(":memory:")
 	defer st.Close()
-	_ = st.CreateToken(ctx, store.Token{ID: "tid", Kind: "honey_credential", Label: "repo .env in payments-api"})
+	_ = st.Tenant(store.DefaultTenant).CreateToken(ctx, store.Token{ID: "tid", Kind: "honey_credential", Label: "repo .env in payments-api"})
 	sink := &memSink{}
 	disp := NewDispatcher(quiet, DispatcherOpts{}, sink)
 	p := &Pipeline{Store: st, Dispatcher: disp, Dedup: NewDedup(time.Minute), Log: quiet}
@@ -72,7 +72,7 @@ func TestPipelineStoresEveryEventButDedupsAlerts(t *testing.T) {
 	_ = p.Hit(ctx, "tid", "http", "198.51.100.4", "GET /t/x")
 	disp.Close()
 
-	evs, _ := st.ListEvents(ctx, "tid", 100)
+	evs, _ := st.Tenant(store.DefaultTenant).ListEvents(ctx, "tid", 100)
 	if len(evs) != 6 {
 		t.Fatalf("stored %d events, want 6", len(evs))
 	}

@@ -1,9 +1,10 @@
 // Command snare runs the Snare callback server and plants tripwires.
 //
-//	snare keygen                          print random keys for SNARE_KEY / SNARE_ADMIN_KEY
+//	snare keygen                          print random keys for SNARE_KEY / SNARE_ADMIN_KEY / SNARE_SEAL_KEY
 //	snare serve                           run listeners (config from SNARE_* env vars)
 //	snare mint -kind K -label L           mint a token through the admin API
 //	snare events [-token ID]              list recent tripwire events
+//	snare tenant create|list|key|revoke   manage tenants and their API keys (operator key)
 //	snare plant repo|corpus <dir>         plant honey credentials / canary docs
 //	snare plant mcp -config F             write a decoy MCP server config
 //	snare decoy-mcp -config F             run the decoy MCP server on stdio
@@ -46,6 +47,8 @@ func main() {
 		err = serve()
 	case "mint":
 		err = mint(os.Args[2:])
+	case "tenant":
+		err = tenantCmd(os.Args[2:])
 	case "events":
 		err = events(os.Args[2:])
 	case "plant":
@@ -70,6 +73,8 @@ func usage() {
   snare serve
   snare mint -kind K -label L [-memo M]
   snare events [-token ID] [-limit N]
+  snare tenant create -name N | list | key -tenant ID [-role admin|viewer]
+               | revoke -key ID | disable -tenant ID | enable -tenant ID
   snare plant repo   [-dry-run] [-manifest F] <dir>
   snare plant corpus [-dry-run] [-manifest F] [-with-instruction] <dir>
   snare plant mcp    [-dry-run] [-manifest F] -config F [-name N] [-exclude a,b]
@@ -88,7 +93,8 @@ func randHex(n int) string {
 }
 
 func keygen() error {
-	fmt.Printf("SNARE_KEY=%s\nSNARE_ADMIN_KEY=%s\nSNARE_WEBHOOK_SECRET=%s\n", randHex(32), randHex(24), randHex(24))
+	fmt.Printf("SNARE_KEY=%s\nSNARE_ADMIN_KEY=%s\nSNARE_WEBHOOK_SECRET=%s\nSNARE_SEAL_KEY=%s\n",
+		randHex(32), randHex(24), randHex(24), randHex(32))
 	return nil
 }
 
@@ -117,7 +123,7 @@ func client() *admin.Client {
 	if u == "" {
 		u = "http://127.0.0.1:8081"
 	}
-	return &admin.Client{BaseURL: u, Key: os.Getenv("SNARE_ADMIN_KEY")}
+	return &admin.Client{BaseURL: u, Key: os.Getenv("SNARE_ADMIN_KEY"), Tenant: os.Getenv("SNARE_TENANT")}
 }
 
 func mint(args []string) error {

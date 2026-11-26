@@ -1,0 +1,39 @@
+# Hostnames come from the environment the compose file passes in (see user_data.sh.tftpl).
+{
+	email {$ACME_EMAIL}
+	servers {
+		timeouts {
+			read_header 5s
+			idle 60s
+		}
+	}
+}
+
+(hardening) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+	request_body {
+		max_size 1MB
+	}
+}
+
+# Callback host: canary URLs and honey-credential base URLs land here. Everything is forwarded,
+# including unknown paths, because "unknown path with a token in it" is the signal.
+{$CALLBACK_HOST} {
+	import hardening
+	reverse_proxy snare:8080
+}
+
+# Admin API: tenant and operator keys. Bearer-authenticated by Snare itself.
+{$API_HOST} {
+	import hardening
+	reverse_proxy snare:8081
+}
+
+# Read-only dashboard.
+{$APP_HOST} {
+	import hardening
+	reverse_proxy snare:8090
+}
