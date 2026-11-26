@@ -41,8 +41,8 @@ func newEnv(t *testing.T) *env {
 	va, vb := st.Tenant(a.ID), st.Tenant(b.ID)
 	_ = va.CreateToken(ctx, store.Token{ID: "tok_a", Kind: "canary_url", Label: `acme <script>alert(1)</script>`})
 	_ = vb.CreateToken(ctx, store.Token{ID: "tok_b", Kind: "canary_url", Label: "beta-secret-label"})
-	_, _, _, _ = st.RecordHit(ctx, store.Event{TokenID: "tok_b", Channel: "http", SourceIP: "198.51.100.9", Detail: "GET /beta-path", At: time.Now()})
-	_, _, _, _ = st.RecordHit(ctx, store.Event{TokenID: "tok_a", Channel: "dns", SourceIP: "203.0.113.5", Detail: "acme-detail", At: time.Now()})
+	_, _, _, _, _ = st.RecordHit(ctx, store.Event{TokenID: "tok_b", Channel: "http", SourceIP: "198.51.100.9", Detail: "GET /beta-path", At: time.Now()}, false)
+	_, _, _, _, _ = st.RecordHit(ctx, store.Event{TokenID: "tok_a", Channel: "dns", SourceIP: "203.0.113.5", Detail: "acme-detail", At: time.Now()}, false)
 	_ = vb.CreateSink(ctx, store.SinkRecord{ID: "sk_beta", Type: "splunk_hec", Config: []byte("SEALED-BLOB-BYTES")})
 
 	d := &Dashboard{Store: st, SessionKey: bytes.Repeat([]byte{9}, 32), Log: slog.New(slog.NewTextHandler(io.Discard, nil))}

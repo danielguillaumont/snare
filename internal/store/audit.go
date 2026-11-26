@@ -42,6 +42,7 @@ const (
 	ActSinkCreate    = "sink.create"
 	ActSinkDelete    = "sink.delete"
 	ActSignIn        = "dashboard.sign_in"
+	ActDeliveryRetry = "delivery.retry"
 )
 
 type AuditEntry struct {

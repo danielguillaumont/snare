@@ -22,8 +22,8 @@ flowchart LR
     DNS[Authoritative DNS<br/>for cb. zone] --> V
     V -->|no: drop, no DB write| X((noise))
     V -->|yes| P[Pipeline:<br/>record hit, dedup]
-    P --> S[(SQLite:<br/>tenants, tokens,<br/>events, sealed sinks)]
-    P --> D[Dispatcher<br/>retries, per-sink jobs]
+    P -->|event + outbox row,<br/>one transaction| S[(SQLite:<br/>tenants, tokens, events,<br/>sealed sinks, outbox)]
+    S --> D[Outbox worker<br/>per-destination retries]
     API[Admin API<br/>operator + tenant keys] --> S
     UI[Read-only dashboard] --> S
   end
@@ -48,9 +48,13 @@ flowchart LR
 4. **Verify cheaply.** The listeners look for token-shaped substrings and check the MAC
    (constant-time, capped per request) **before** touching the database. Scanner noise and
    forged tokens never create events.
-5. **Record and route.** `RecordHit` resolves the token's tenant. The dispatcher sends one
-   OCSF Detection Finding to the operator's sinks and to that tenant's sinks only. Delivery
-   is retried, and Elastic writes are keyed by finding uid, so retries don't duplicate.
+5. **Record and route.** `RecordHit` resolves the token's tenant and, in the same
+   transaction, queues the alert in a durable outbox. A worker sends one OCSF Detection
+   Finding to the operator's sinks and to that tenant's sinks only. Each destination retries
+   on its own schedule (about 3 h, then the row is marked dead and shown in metrics and the
+   CLI), and survives restarts. Delivery is at least once with a stable `finding_info.uid`,
+   and Elastic writes are keyed by it, so retries don't duplicate
+   ([M4c](M4c-reliability.md)).
 6. **Respond.** The toucher only ever sees a bland `200 {"status":"ok"}` or an ordinary A
    record. It learns nothing about Snare.
 
@@ -61,7 +65,8 @@ flowchart LR
 | `internal/token` | Token format, MAC, scanning untrusted text for tokens |
 | `internal/listener` | HTTP and DNS callback listeners, per-IP rate limits |
 | `internal/store` | SQLite schema and migrations; `TenantStore` views (the isolation boundary); API keys |
-| `internal/alert` | OCSF model, pipeline, dedup, dispatcher, webhook/SIEM sinks, tenant sink resolver |
+| `internal/alert` | OCSF model, pipeline, dedup, delivery outbox worker, webhook/SIEM/Slack sinks, tenant sink resolver, metrics |
+| `internal/metrics` | Minimal Prometheus text-format registry (no client library) |
 | `internal/seal` | AES-256-GCM sealing of sink secrets, bound to tenant and sink id |
 | `internal/egress` | SSRF policy for outbound sink traffic, enforced at dial time |
 | `internal/admin` | Admin API (route table with access levels), Go client |

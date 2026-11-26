@@ -42,7 +42,7 @@ func TestTokensAndEvents(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	for i := 0; i < 3; i++ {
-		tok, ev, found, err := s.RecordHit(ctx, Event{TokenID: "abc", Channel: "http", SourceIP: "203.0.113.5", Detail: "ua", At: now.Add(time.Duration(i) * time.Second)})
+		tok, ev, found, _, err := s.RecordHit(ctx, Event{TokenID: "abc", Channel: "http", SourceIP: "203.0.113.5", Detail: "ua", At: now.Add(time.Duration(i) * time.Second)}, false)
 		if err != nil || !found || tok.Label == "" || ev.ID == 0 || ev.TenantID != DefaultTenant {
 			t.Fatalf("RecordHit: %+v %+v %v %v", tok, ev, found, err)
 		}
@@ -60,7 +60,7 @@ func TestTokensAndEvents(t *testing.T) {
 func TestUnregisteredTokenHitBelongsToNoTenant(t *testing.T) {
 	ctx := context.Background()
 	s := open(t)
-	_, ev, found, err := s.RecordHit(ctx, Event{TokenID: "ghost", Channel: "dns", SourceIP: "198.51.100.1", At: time.Now()})
+	_, ev, found, _, err := s.RecordHit(ctx, Event{TokenID: "ghost", Channel: "dns", SourceIP: "198.51.100.1", At: time.Now()}, false)
 	if err != nil || found || ev.TenantID != "" {
 		t.Fatalf("got %+v found=%v err=%v", ev, found, err)
 	}
@@ -78,6 +78,7 @@ func TestUnregisteredTokenHitBelongsToNoTenant(t *testing.T) {
 type fixture struct {
 	s    *Store
 	a, b TenantStore
+	dead map[string]int64 // tenant id -> one dead delivery
 }
 
 func newFixture(t *testing.T) fixture {
@@ -87,7 +88,7 @@ func newFixture(t *testing.T) fixture {
 	op := s.Operator()
 	ta, _ := op.CreateTenant(ctx, "Acme")
 	tb, _ := op.CreateTenant(ctx, "Beta")
-	f := fixture{s: s, a: s.Tenant(ta.ID), b: s.Tenant(tb.ID)}
+	f := fixture{s: s, a: s.Tenant(ta.ID), b: s.Tenant(tb.ID), dead: map[string]int64{}}
 	for _, x := range []struct {
 		v  TenantStore
 		id string
@@ -95,12 +96,26 @@ func newFixture(t *testing.T) fixture {
 		if err := x.v.CreateToken(ctx, Token{ID: x.id, Kind: "decoy_tool", Label: "label of " + x.id}); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, _, err := s.RecordHit(ctx, Event{TokenID: x.id, Channel: "http", SourceIP: "203.0.113.9", At: time.Now()}); err != nil {
+		if _, _, _, _, err := s.RecordHit(ctx, Event{TokenID: x.id, Channel: "http", SourceIP: "203.0.113.9", At: time.Now()}, true); err != nil {
 			t.Fatal(err)
 		}
 		if err := x.v.CreateSink(ctx, SinkRecord{ID: "sink_" + x.id, Type: "webhook", Config: []byte("sealed")}); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// Each tenant gets one dead delivery to its own sink.
+	ob := s.Outbox()
+	markers, _ := ob.Due(ctx, time.Now().Add(time.Hour), 10)
+	for _, m := range markers {
+		_ = ob.Expand(ctx, m, []string{"sink_" + map[string]string{ta.ID: "tok_a", tb.ID: "tok_b"}[m.TenantID]}, time.Now())
+	}
+	rows, _ := ob.Due(ctx, time.Now().Add(time.Hour), 10)
+	for _, d := range rows {
+		_ = ob.MarkFailed(ctx, d.ID, 20, time.Now(), "connection refused", true, time.Now())
+		f.dead[d.TenantID] = d.ID
+	}
+	if len(f.dead) != 2 {
+		t.Fatalf("fixture deliveries: %+v", f.dead)
 	}
 	return f
 }
@@ -177,6 +192,25 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				if e.TenantID != f.a.TenantID() || strings.Contains(e.Target, "tok_b") {
 					t.Fatalf("A sees B's record %+v", e)
 				}
+			}
+		},
+		"ListDeliveries": func(t *testing.T, f fixture) {
+			for _, state := range []string{"", DeliveryDead} {
+				da, err := f.a.ListDeliveries(ctx, state, 100)
+				if err != nil || len(da) != 1 || da[0].ID != f.dead[f.a.TenantID()] || da[0].TenantID != f.a.TenantID() {
+					t.Fatalf("A sees deliveries %+v %v", da, err)
+				}
+			}
+		},
+		"RetryDelivery": func(t *testing.T, f fixture) {
+			if err := f.a.RetryDelivery(ctx, f.dead[f.b.TenantID()]); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("A retried B's delivery: %v", err)
+			}
+			if db, _ := f.b.ListDeliveries(ctx, DeliveryDead, 10); len(db) != 1 {
+				t.Fatal("B's dead delivery changed")
+			}
+			if err := f.a.RetryDelivery(ctx, f.dead[f.a.TenantID()]); err != nil {
+				t.Fatalf("A can't retry its own: %v", err)
 			}
 		},
 		"DeleteSink": func(t *testing.T, f fixture) {

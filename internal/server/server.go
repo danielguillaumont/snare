@@ -24,6 +24,7 @@ import (
 	"github.com/danielguillaumont/snare/internal/dashboard"
 	"github.com/danielguillaumont/snare/internal/egress"
 	"github.com/danielguillaumont/snare/internal/listener"
+	"github.com/danielguillaumont/snare/internal/metrics"
 	"github.com/danielguillaumont/snare/internal/seal"
 	"github.com/danielguillaumont/snare/internal/store"
 	"github.com/danielguillaumont/snare/internal/token"
@@ -113,10 +114,10 @@ func FromEnv() (Config, error) {
 }
 
 type Server struct {
-	cfg  Config
-	log  *slog.Logger
-	st   *store.Store
-	disp *alert.Dispatcher
+	cfg    Config
+	log    *slog.Logger
+	st     *store.Store
+	outbox *alert.Outbox
 
 	httpSrv, adminSrv, dashSrv *http.Server
 	dnsUDP, dnsTCP             *dns.Server
@@ -139,29 +140,32 @@ func Start(cfg Config, log *slog.Logger) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	sinks := []alert.Sink{alert.LogSink{Log: log}}
+	// Operator sinks. Refs are stable names: rows queued under them survive a restart.
+	ops := []alert.Target{{Ref: "op:log", Sink: alert.LogSink{Log: log}}}
 	if cfg.WebhookURL != "" {
-		sinks = append(sinks, alert.WebhookSink{URL: cfg.WebhookURL, Secret: cfg.WebhookSecret})
+		ops = append(ops, alert.Target{Ref: "op:webhook", Sink: alert.WebhookSink{URL: cfg.WebhookURL, Secret: cfg.WebhookSecret}})
 	}
 	policy := egress.Policy{AllowPrivate: cfg.SinkAllowPrivate}
+	reg := metrics.New()
+	am := alert.NewMetrics(reg, st)
+	ob := &alert.Outbox{Store: st, Operator: ops, Log: log, Metrics: am}
 	var sealer *seal.Sealer
 	var resolver *alert.TenantResolver
-	dopts := alert.DispatcherOpts{}
 	if cfg.SealKey != nil {
 		if sealer, err = seal.New(cfg.SealKey); err != nil {
 			st.Close()
 			return nil, err
 		}
 		resolver = &alert.TenantResolver{Store: st, Sealer: sealer, Client: policy.Client(10 * time.Second), Log: log}
-		dopts.Resolver = resolver
+		ob.Resolver = resolver // only when non-nil: a nil *TenantResolver in the interface is not nil
 	}
-	disp := alert.NewDispatcher(log, dopts, sinks...)
+	ob.Start()
 	window := cfg.DedupWindow
 	if window == 0 {
 		window = time.Minute
 	}
-	pipe := &alert.Pipeline{Store: st, Dispatcher: disp, Dedup: alert.NewDedup(window), Log: log}
-	s := &Server{cfg: cfg, log: log, st: st, disp: disp}
+	pipe := &alert.Pipeline{Store: st, Outbox: ob, Dedup: alert.NewDedup(window), Log: log, Metrics: am}
+	s := &Server{cfg: cfg, log: log, st: st, outbox: ob}
 
 	cleanup := func(e error) (*Server, error) { s.Shutdown(context.Background()); return nil, e }
 
@@ -183,7 +187,7 @@ func Start(cfg Config, log *slog.Logger) (*Server, error) {
 	}
 	s.AdminAddr = adminLn.Addr().String()
 	api := &admin.API{Key: cfg.AdminKey, Signer: signer, Store: st, PublicURL: cfg.PublicURL, URLPath: cfg.URLPath, Zone: cfg.Zone, Log: log,
-		Sealer: sealer, Egress: policy, Resolver: resolver}
+		Sealer: sealer, Egress: policy, Resolver: resolver, Metrics: reg, Wake: ob.Notify}
 	s.adminSrv = &http.Server{Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second}
 	go s.serveHTTP(s.adminSrv, adminLn, "admin")
 
@@ -284,7 +288,7 @@ func (s *Server) serveHTTP(srv *http.Server, ln net.Listener, name string) {
 	}
 }
 
-// Shutdown stops listeners, drains queued alerts and closes the store.
+// Shutdown stops listeners and the delivery loop, then closes the store.
 func (s *Server) Shutdown(ctx context.Context) {
 	for _, h := range []*http.Server{s.httpSrv, s.adminSrv, s.dashSrv} {
 		if h != nil {
@@ -296,8 +300,8 @@ func (s *Server) Shutdown(ctx context.Context) {
 			_ = d.Shutdown()
 		}
 	}
-	if s.disp != nil {
-		s.disp.Close()
+	if s.outbox != nil {
+		s.outbox.Close() // in-flight attempts finish; pending rows wait for the next start
 	}
 	if s.st != nil {
 		_ = s.st.Close()

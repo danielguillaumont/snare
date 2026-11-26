@@ -179,6 +179,9 @@ func (s *Store) migrate() error {
 	if _, err := s.db.Exec(auditSchema); err != nil {
 		return fmt.Errorf("store: audit schema: %w", err)
 	}
+	if _, err := s.db.Exec(outboxSchema); err != nil {
+		return fmt.Errorf("store: outbox schema: %w", err)
+	}
 	if _, err := s.db.Exec(indexes); err != nil {
 		return fmt.Errorf("store: indexes: %w", err)
 	}
@@ -224,6 +227,8 @@ type TenantStore interface {
 	ListSinks(ctx context.Context) ([]SinkRecord, error)
 	DeleteSink(ctx context.Context, id string) error
 	ListAudit(ctx context.Context, limit int) ([]AuditEntry, error)
+	ListDeliveries(ctx context.Context, state string, limit int) ([]Delivery, error)
+	RetryDelivery(ctx context.Context, id int64) error
 }
 
 type tenantView struct {
@@ -391,33 +396,6 @@ func (v *tenantView) DeleteSink(ctx context.Context, id string) error {
 }
 
 // --------------------------------------------------------------------------- hit path
-
-// RecordHit stores an event for a token whose signature the listener has verified. It is the
-// one tenant-agnostic write: the listener learns the tenant from the token record. A valid
-// token with no record (minted by another instance, or deleted) is stored with no tenant, so
-// no tenant ever sees it, and found=false is returned.
-func (s *Store) RecordHit(ctx context.Context, e Event) (Token, Event, bool, error) {
-	var tok Token
-	found := true
-	t, err := scanToken(s.db.QueryRowContext(ctx, `SELECT `+tokenCols+` FROM tokens WHERE id = ?`, e.TokenID))
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		found = false
-	case err != nil:
-		return Token{}, Event{}, false, err
-	default:
-		tok = t
-	}
-	e.TenantID = tok.TenantID
-	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO events (tenant_id, token_id, channel, source_ip, detail, at) VALUES (?, ?, ?, ?, ?, ?)`,
-		e.TenantID, e.TokenID, e.Channel, e.SourceIP, e.Detail, e.At.UnixMilli())
-	if err != nil {
-		return Token{}, Event{}, false, err
-	}
-	e.ID, _ = res.LastInsertId()
-	return tok, e, found, nil
-}
 
 // --------------------------------------------------------------------------- operator
 
