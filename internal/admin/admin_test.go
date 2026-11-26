@@ -205,8 +205,8 @@ func TestAPITenantIsolationMatrix(t *testing.T) {
 						if strings.HasPrefix(path, "/api/deliveries/") {
 							id = tg.f.deliveryID
 						}
-						if strings.HasPrefix(path, "/api/events/") {
-							id = tg.f.eventID
+						if strings.HasPrefix(path, "/api/events/") || strings.HasPrefix(path, "/api/incidents/") {
+							id = tg.f.eventID // the fixture's only event starts its incident
 						}
 						p = strings.Replace(path, "{id}", id, 1)
 					}
@@ -264,6 +264,8 @@ var success = map[string]int{
 	"POST /api/tokens/{id}/disable":   204,
 	"POST /api/tokens/{id}/enable":    204,
 	"POST /api/events/{id}/triage":    204,
+	"GET /api/incidents":              200,
+	"GET /api/incidents/{id}":         200,
 	"POST /api/fingerprints":          200,
 	"GET /api/audit":                  200,
 	"GET /api/deliveries":             200,

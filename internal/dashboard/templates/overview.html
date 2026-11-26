@@ -5,17 +5,18 @@
     <div><b>{{len .Tokens}}</b> tokens</div>
     <div><b>{{.TouchedCount}}</b> touched</div>
     <div><b>{{.Open}}</b> open</div>
-    {{if .Critical}}<div class="crit" title="open touches by a source that touched 2 or more tripwires"><b>{{.Critical}}</b> open critical</div>{{end}}
+    {{if .Critical}}<div class="crit" title="open touches that were Critical: 2 or more tripwires or stages, or exfiltration or use"><b>{{.Critical}}</b> open critical</div>{{end}}
     {{if .Dead}}<div class="crit"><a href="/sinks"><b>{{.Dead}}</b> undelivered</a></div>{{end}}
   </section>
   <h2>Recent touches</h2>
   {{if .Events}}
   <table>
-    <thead><tr><th>Time (UTC)</th><th>Token</th><th>Channel</th><th>Source</th><th>Detail</th><th>Severity</th><th>Status</th></tr></thead>
+    <thead><tr><th>Time (UTC)</th><th>Token</th><th>Channel</th><th>Source</th><th>Detail</th><th>Stage</th><th>Severity</th><th>Status</th></tr></thead>
     <tbody>
     {{range .Events}}<tr class="{{if or .Muted (ne .Status "open")}}done{{else}}hit{{end}}">
       <td>{{ts .At}}</td><td><a href="/tokens/{{.TokenID}}">{{if .Label}}{{.Label}}{{else}}{{.TokenID}}{{end}}</a></td>
       <td>{{.Channel}}</td><td><code>{{.SourceIP}}</code></td><td class="detail">{{.Detail}}</td>
+      <td>{{if .Stage}}<a href="/incidents/{{.IncidentID}}" title="incident #{{.IncidentID}}"><span class="stage stage-{{.Stage}}">{{.Stage}}</span></a>{{else}}<span class="muted">-</span>{{end}}</td>
       <td>{{if ge .Correlated 2}}<span class="tag crit" title="this source touched {{.Correlated}} tripwires within an hour">critical · {{.Correlated}} tripwires</span>{{else if .Critical}}<span class="tag crit" title="{{.Why}}">critical · {{.Stage}}</span>{{else}}<span class="tag hit">high</span>{{end}}{{if .PreviousKey}} <span class="tag" title="verified by a retired signing key: replant this tripwire">old key</span>{{end}}</td>
       <td>{{template "status" .Event}}</td>
     </tr>{{end}}

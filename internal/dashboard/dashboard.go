@@ -86,6 +86,8 @@ func (d *Dashboard) Handler() (http.Handler, error) {
 	mux.Handle("GET /{$}", d.authed(d.overview))
 	mux.Handle("GET /tokens/{id}", d.authed(d.tokenPage))
 	mux.Handle("GET /sinks", d.authed(d.sinksPage))
+	mux.Handle("GET /incidents", d.authed(d.incidentsPage))
+	mux.Handle("GET /incidents/{id}", d.authed(d.incidentPage))
 	// Admin actions (docs/M4e-lifecycle.md §4). Each redirects back to the tripwire's page.
 	mux.Handle("POST /tokens/{id}/disable", d.authed(d.adminForm(d.setTokenDisabled(true))))
 	mux.Handle("POST /tokens/{id}/enable", d.authed(d.adminForm(d.setTokenDisabled(false))))
@@ -347,6 +349,57 @@ func (d *Dashboard) tokenPage(w http.ResponseWriter, r *http.Request, s session)
 	}
 	d.render(w, "token.html", map[string]any{"S": s, "Token": t, "Events": evs, "FalsePositives": fp,
 		"Statuses": []string{store.StatusOpen, store.StatusAcknowledged, store.StatusResolved, store.StatusFalsePositive}})
+}
+
+func (d *Dashboard) incidentsPage(w http.ResponseWriter, r *http.Request, s session) {
+	ins, err := d.Store.Tenant(s.TenantID).ListIncidents(r.Context(), 100)
+	if err != nil {
+		d.fail(w, err)
+		return
+	}
+	d.render(w, "incidents.html", map[string]any{"S": s, "Incidents": ins})
+}
+
+type timelineRow struct {
+	store.Event
+	Label, Kind string
+}
+
+// incidentPage shows one incident as a timeline: each touch with its stage (M7 §4).
+func (d *Dashboard) incidentPage(w http.ResponseWriter, r *http.Request, s session) {
+	v := d.Store.Tenant(s.TenantID)
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	in, evs, err := v.GetIncident(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r) // same as a missing id: other tenants' ids can't be probed
+		return
+	}
+	if err != nil {
+		d.fail(w, err)
+		return
+	}
+	toks, err := v.ListTokens(r.Context())
+	if err != nil {
+		d.fail(w, err)
+		return
+	}
+	byID := map[string]store.Token{}
+	for _, t := range toks {
+		byID[t.ID] = t
+	}
+	rows := make([]timelineRow, 0, len(evs))
+	for _, e := range evs {
+		t, ok := byID[e.TokenID]
+		if !ok {
+			t = store.Token{Kind: "unknown", Label: "(deleted tripwire)"}
+		}
+		rows = append(rows, timelineRow{Event: e, Label: t.Label, Kind: t.Kind})
+	}
+	d.render(w, "incident.html", map[string]any{"S": s, "Incident": in, "Timeline": rows})
 }
 
 func (d *Dashboard) sinksPage(w http.ResponseWriter, r *http.Request, s session) {

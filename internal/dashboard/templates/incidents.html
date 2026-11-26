@@ -1,0 +1,17 @@
+{{template "head" "Incidents"}}
+{{template "nav" .S}}
+<main>
+  <h1>Incidents</h1>
+  <p class="muted">Touches from one gateway session, or from one source when there is no session, form an incident while each arrives within an hour of the last.</p>
+  <table>
+    <thead><tr><th>Incident</th><th>Last seen (UTC)</th><th>Stages</th><th>Touches</th><th>Tripwires</th><th>Source</th><th>Open</th></tr></thead>
+    <tbody>{{range .Incidents}}<tr class="{{if .Open}}hit{{else}}done{{end}}">
+      <td><a href="/incidents/{{.ID}}">#{{.ID}}</a></td><td>{{ts .LastSeen}}</td>
+      <td>{{range $i, $s := .Stages}}{{if $i}} › {{end}}<span class="stage stage-{{$s}}">{{$s}}</span>{{end}}</td>
+      <td>{{.Touches}}</td><td>{{.Tripwires}}</td>
+      <td>{{if .Session}}session <code>{{.Session}}</code>{{else}}<code>{{.SourceIP}}</code>{{end}}</td>
+      <td>{{if .Open}}<span class="tag hit">{{.Open}} open</span>{{else}}<span class="tag ok">triaged</span>{{end}}</td>
+    </tr>{{else}}<tr><td colspan="7" class="muted">No incidents. Touches recorded before this version are listed under Tokens.</td></tr>{{end}}</tbody>
+  </table>
+</main>
+{{template "foot"}}

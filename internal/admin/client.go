@@ -76,6 +76,20 @@ func (c *Client) EventsFiltered(f store.EventFilter, limit int) ([]store.Event, 
 	return evs, err
 }
 
+// Incidents lists the tenant's incidents, most recently active first.
+func (c *Client) Incidents(limit int) ([]store.Incident, error) {
+	var ins []store.Incident
+	err := c.do("GET", fmt.Sprintf("/api/incidents?limit=%d", limit), nil, &ins)
+	return ins, err
+}
+
+// Incident returns one incident and its timeline.
+func (c *Client) Incident(id int64) (IncidentDetail, error) {
+	var d IncidentDetail
+	err := c.do("GET", fmt.Sprintf("/api/incidents/%d", id), nil, &d)
+	return d, err
+}
+
 // Triage sets an event's triage status and note.
 func (c *Client) Triage(eventID int64, status, note string) error {
 	return c.do("POST", fmt.Sprintf("/api/events/%d/triage", eventID), TriageRequest{Status: status, Note: note}, nil)

@@ -1,0 +1,23 @@
+{{template "head" "Incident"}}
+{{template "nav" .S}}
+<main>
+  {{with .Incident}}
+  <h1>Incident #{{.ID}}</h1>
+  <dl>
+    <dt>Source</dt><dd>{{if .Session}}gateway session <code>{{.Session}}</code>, first from <code>{{.SourceIP}}</code>{{else}}<code>{{.SourceIP}}</code>{{end}}</dd>
+    <dt>Seen (UTC)</dt><dd>{{ts .FirstSeen}} to {{ts .LastSeen}}</dd>
+    <dt>Touches</dt><dd>{{.Touches}} of {{.Tripwires}} tripwire{{if ne .Tripwires 1}}s{{end}}, {{.Open}} open</dd>
+    <dt>Kill chain</dt><dd>{{range $i, $s := .Stages}}{{if $i}} › {{end}}<span class="stage stage-{{$s}}">{{$s}}</span>{{end}}</dd>
+  </dl>
+  {{end}}
+  <h2>Timeline</h2>
+  <ol class="timeline">
+    {{range .Timeline}}<li class="{{if or .Muted (ne .Status "open")}}done{{end}}">
+      <span class="when">{{ts .At}}</span>
+      {{if .Stage}}<span class="stage stage-{{.Stage}}">{{.Stage}}</span> <span class="muted">{{.Layer}} layer</span>{{else}}<span class="muted">recorded before stages</span>{{end}}
+      <div><a href="/tokens/{{.TokenID}}">{{.Label}}</a> <span class="muted">{{.Kind}} · {{.Channel}} · <code>{{.SourceIP}}</code></span> {{template "status" .Event}}</div>
+      <div class="detail">{{.Detail}}</div>
+    </li>{{end}}
+  </ol>
+</main>
+{{template "foot"}}
