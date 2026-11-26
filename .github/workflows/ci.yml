@@ -19,6 +19,20 @@ jobs:
       - run: go vet ./...
       - run: go test -race ./...
 
+  cross:
+    # Every release target must build on every PR, not first on release day.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: VERSION=ci scripts/build-release.sh
+      - name: the linux binary runs and reports the stamped version
+        run: |
+          tar -xzf dist/snare_ci_linux_amd64.tar.gz -C /tmp
+          test "$(/tmp/snare_ci_linux_amd64/snare version)" = "snare ci"
+
   govulncheck:
     # Reports only vulnerabilities in code paths Snare actually calls.
     runs-on: ubuntu-latest

@@ -23,7 +23,9 @@ answers DNS for the callback zone itself.
   deploying it:
 
   ```bash
-  cosign verify ghcr.io/danielguillaumont/snare:X.Y.Z     --certificate-identity-regexp '^https://github.com/danielguillaumont/snare/.github/workflows/release.yml@refs/tags/v'     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+  cosign verify ghcr.io/danielguillaumont/snare:X.Y.Z \
+    --certificate-identity-regexp '^https://github.com/danielguillaumont/snare/.github/workflows/release.yml@refs/tags/v' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
   ```
 
 Expected cost at the defaults: one t4g.small instance, 36 GB gp3 across the two volumes, an

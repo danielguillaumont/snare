@@ -46,6 +46,7 @@ const (
 	ActTokenDisable  = "token.disable"
 	ActTokenEnable   = "token.enable"
 	ActEventTriage   = "event.triage"
+	ActEventsPurge   = "events.purge"
 )
 
 type AuditEntry struct {
@@ -84,15 +85,24 @@ func auditHash(prev string, e AuditEntry) string {
 // inTx runs fn and appends one audit record in the same transaction. fn must use only tx:
 // the pool has one connection, so touching db inside would deadlock.
 func inTx(ctx context.Context, db *sql.DB, tenantID, action, target, detail string, fn func(tx *sql.Tx) error) error {
+	return inTxDetail(ctx, db, tenantID, action, target, func(tx *sql.Tx) (string, error) {
+		if fn == nil {
+			return detail, nil
+		}
+		return detail, fn(tx)
+	})
+}
+
+// inTxDetail is inTx for changes whose audit detail is only known after they run (a count).
+func inTxDetail(ctx context.Context, db *sql.DB, tenantID, action, target string, fn func(tx *sql.Tx) (string, error)) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if fn != nil {
-		if err := fn(tx); err != nil {
-			return err
-		}
+	detail, err := fn(tx)
+	if err != nil {
+		return err
 	}
 	var prev string
 	err = tx.QueryRowContext(ctx, `SELECT hash FROM audit_log ORDER BY seq DESC LIMIT 1`).Scan(&prev)

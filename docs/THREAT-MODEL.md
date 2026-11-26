@@ -77,6 +77,11 @@ prevention (input isolation, tool permissions), not in place of it.
 
   Nothing stops a legitimate admin key from doing it, though. Alert on `token.disable` in
   the audit log if that matters to you.
+- **With retention on, triage decides what is deleted.** `SNARE_EVENT_RETENTION` (M4f)
+  deletes closed and muted events past the cutoff, so an admin key can mark a touch
+  resolved and wait for it to age out. Open touches are never deleted by age, and each
+  triage and each purge is in the audit log with its count. The finding itself was already
+  delivered to your sinks when it happened; keep those copies on your own retention policy.
 - **Operator key is all-powerful, and shared.** Since M4b, every tenant, key and sink
   change, and every dashboard sign-in, is written to a hash-chained audit log in the same
   transaction as the change (`snare audit -verify`). There is still no per-operator identity,

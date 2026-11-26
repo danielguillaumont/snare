@@ -99,5 +99,6 @@ internal/admin/       admin HTTP API
 | `SNARE_TRUST_PROXY` | `1` behind your own reverse proxy: client IP from the last `X-Forwarded-For` entry |
 | `SNARE_SEAL_KEY` | 32 bytes of hex. Enables per-tenant sinks, sealed with AES-256-GCM (M4), and seals token labels and memos at rest (M4d). |
 | `SNARE_SINK_ALLOW_PRIVATE` | `1` lets tenant sinks target private addresses. Local testing only (M4) |
-| `SNARE_DASHBOARD_ADDR` | Listen address for the read-only tenant dashboard; unset disables it (M4) |
+| `SNARE_DASHBOARD_ADDR` | Listen address for the tenant dashboard; unset disables it (M4). Admin sessions can triage and disable there (M4e) |
 | `SNARE_DASHBOARD_DEV` | `1` drops the cookie `Secure` flag for plain-HTTP localhost; refused on other addresses (M4) |
+| `SNARE_EVENT_RETENTION` | Days to keep closed and muted events; unset or `0` keeps everything. Open events are never deleted by age (M4f) |
