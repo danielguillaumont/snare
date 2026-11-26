@@ -40,7 +40,7 @@ cat > terraform.tfvars <<'EOF'
 domain          = "snare.example.com"
 route53_zone_id = "Z0123456789EXAMPLE"
 acme_email      = "security@example.com"
-image           = "ghcr.io/danielguillaumont/snare:0.5.0"
+image           = "ghcr.io/danielguillaumont/snare:0.6.0"
 EOF
 terraform init
 terraform plan -out plan.tfplan             # read it
