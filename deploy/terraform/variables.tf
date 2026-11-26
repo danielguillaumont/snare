@@ -22,7 +22,7 @@ variable "acme_email" {
 variable "image" {
   description = "Snare container image. Pin a digest in production (image@sha256:...)."
   type        = string
-  default     = "ghcr.io/danielguillaumont/snare:0.4.0"
+  default     = "ghcr.io/danielguillaumont/snare:0.5.0"
 }
 
 variable "instance_type" {

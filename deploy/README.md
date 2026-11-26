@@ -19,7 +19,7 @@ answers DNS for the callback zone itself.
 - Terraform ≥ 1.9, the AWS CLI, `openssl`, `curl` and `jq`.
 - A published image. Tagging `vX.Y.Z` runs `.github/workflows/release.yml`, which pushes
   `ghcr.io/danielguillaumont/snare:X.Y.Z`. Pin it by digest in `image`.
-- From v0.4.1, release images are signed keylessly and carry an SBOM. Check one before
+- From v0.5.0, release images are signed keylessly and carry an SBOM. Check one before
   deploying it:
 
   ```bash
@@ -40,7 +40,7 @@ cat > terraform.tfvars <<'EOF'
 domain          = "snare.example.com"
 route53_zone_id = "Z0123456789EXAMPLE"
 acme_email      = "security@example.com"
-image           = "ghcr.io/danielguillaumont/snare:0.4.0"
+image           = "ghcr.io/danielguillaumont/snare:0.5.0"
 EOF
 terraform init
 terraform plan -out plan.tfplan             # read it
