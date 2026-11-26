@@ -85,4 +85,23 @@ acts=$(call "$ka" GET "/api/audit?limit=50" | jq -r '[.[].action] | join(",")')
 [ "$(call "$SNARE_ADMIN_KEY" GET /api/operator/audit/verify | jq -r .ok)" = true ] || fail "audit chain does not verify"
 ok "audit log records the setup and its hash chain verifies"
 
+# The alert went through the durable outbox: the operator log sink has a delivered row for it.
+for _ in $(seq 1 20); do
+  st=$(call "$SNARE_ADMIN_KEY" GET "/api/operator/deliveries?limit=200" |
+    jq -r --arg t "$ta" '[.[] | select(.tenant_id == $t and .sink == "op:log")][0].state // "none"')
+  [ "$st" = delivered ] && break
+  sleep 0.5
+done
+[ "$st" = delivered ] || fail "alert delivery for tenant A is $st, want delivered"
+[ "$(call "$ka" GET /api/deliveries | jq '[.[] | select(.sink | startswith("op:"))] | length')" -eq 0 ] ||
+  fail "tenant A can see operator sink deliveries"
+ok "alert delivered through the outbox; operator deliveries hidden from tenants"
+
+metrics=$(call "$SNARE_ADMIN_KEY" GET /metrics)
+grep -q '^snare_hits_total{channel="http"} [1-9]' <<<"$metrics" || fail "metrics lack the HTTP hit"
+grep -q '^snare_deliveries_total{sink="log",result="ok"} [1-9]' <<<"$metrics" || fail "metrics lack the delivery"
+code=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ka" "$api/metrics")
+[ "$code" = 404 ] || fail "tenant key got $code on /metrics, want 404"
+ok "metrics report the hit and delivery; tenants can't read them"
+
 echo "PASS"

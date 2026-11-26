@@ -1,13 +1,13 @@
 // Package alert turns tripwire hits into stored events and delivered alerts.
 //
-// Flow: listener -> Pipeline.Hit -> store event -> dedup -> Dispatcher queue -> sinks.
-// Hit never blocks on delivery: a slow or dead webhook can't slow the listeners down.
+// Flow: listener -> Pipeline.Hit -> dedup -> store event + outbox marker (one transaction) ->
+// Outbox worker -> sinks. Hit never blocks on delivery: a slow or dead webhook can't slow the
+// listeners down, and a restart or a SIEM outage can't lose an alert (docs/M4c-reliability.md).
 package alert
 
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
@@ -166,144 +166,6 @@ func (d *Dedup) Allow(key string, now time.Time) bool {
 		}
 	}
 	return true
-}
-
-// Resolver returns a tenant's own sinks. It is consulted when an alert is queued.
-type Resolver interface {
-	Sinks(ctx context.Context, tenantID string) []Sink
-}
-
-// Dispatcher delivers alerts from a bounded queue with retries. Each (alert, sink) pair is
-// one job, retried on its own, so a dead SIEM delays nobody else's alerts.
-type Dispatcher struct {
-	sinks    []Sink // operator sinks: every alert
-	resolver Resolver
-	queue    chan job
-	attempts int
-	backoff  time.Duration
-	log      *slog.Logger
-	wg       sync.WaitGroup
-}
-
-type job struct {
-	a    Alert
-	sink Sink
-}
-
-type DispatcherOpts struct {
-	QueueSize int
-	Workers   int
-	Attempts  int
-	Backoff   time.Duration // first retry delay; doubles each attempt
-	Resolver  Resolver      // optional: per-tenant sinks
-}
-
-func NewDispatcher(log *slog.Logger, opts DispatcherOpts, sinks ...Sink) *Dispatcher {
-	if opts.QueueSize <= 0 {
-		opts.QueueSize = 1024
-	}
-	if opts.Workers <= 0 {
-		opts.Workers = 4
-	}
-	if opts.Attempts <= 0 {
-		opts.Attempts = 3
-	}
-	if opts.Backoff <= 0 {
-		opts.Backoff = 250 * time.Millisecond
-	}
-	d := &Dispatcher{sinks: sinks, resolver: opts.Resolver, queue: make(chan job, opts.QueueSize),
-		attempts: opts.Attempts, backoff: opts.Backoff, log: log}
-	for i := 0; i < opts.Workers; i++ {
-		d.wg.Add(1)
-		go d.work()
-	}
-	return d
-}
-
-// Enqueue never blocks on delivery. It returns false if any delivery was dropped because the
-// queue was full (the event itself is always stored first).
-func (d *Dispatcher) Enqueue(a Alert) bool {
-	targets := append([]Sink(nil), d.sinks...)
-	if d.resolver != nil && a.Metadata.TenantUID != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		targets = append(targets, d.resolver.Sinks(ctx, a.Metadata.TenantUID)...)
-		cancel()
-	}
-	ok := true
-	for _, s := range targets {
-		select {
-		case d.queue <- job{a: a, sink: s}:
-		default:
-			ok = false
-			d.log.Warn("alert queue full; delivery dropped (event stored)", "finding", a.FindingInfo.UID, "sink", s.Name())
-		}
-	}
-	return ok
-}
-
-// Close stops accepting alerts and waits for queued ones to be delivered or fail.
-func (d *Dispatcher) Close() {
-	close(d.queue)
-	d.wg.Wait()
-}
-
-func (d *Dispatcher) work() {
-	defer d.wg.Done()
-	for j := range d.queue {
-		d.deliver(j.sink, j.a)
-	}
-}
-
-func (d *Dispatcher) deliver(s Sink, a Alert) {
-	delay := d.backoff
-	var err error
-	for i := 1; i <= d.attempts; i++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		err = s.Send(ctx, a)
-		cancel()
-		if err == nil {
-			return
-		}
-		if i < d.attempts {
-			time.Sleep(delay)
-			delay *= 2
-		}
-	}
-	d.log.Error("alert delivery failed", "sink", s.Name(), "tenant", a.Metadata.TenantUID,
-		"finding", a.FindingInfo.UID, "err", err)
-}
-
-// Pipeline records hits and dispatches alerts.
-type Pipeline struct {
-	Store      *store.Store
-	Dispatcher *Dispatcher
-	Dedup      *Dedup
-	Log        *slog.Logger
-	Now        func() time.Time
-}
-
-// Hit is called by listeners after a token's signature has been verified.
-func (p *Pipeline) Hit(ctx context.Context, tokenID, channel, sourceIP, detail string) error {
-	now := time.Now
-	if p.Now != nil {
-		now = p.Now
-	}
-	tok, ev, found, err := p.Store.RecordHit(ctx, store.Event{
-		TokenID: tokenID, Channel: channel, SourceIP: sourceIP, Detail: truncate(detail, 512), At: now().UTC(),
-	})
-	if err != nil {
-		return fmt.Errorf("record event: %w", err)
-	}
-	if !found {
-		// Valid signature means we minted it; the record may be from another instance or
-		// deleted. No tenant owns it, so it reaches operator sinks only.
-		tok = store.Token{ID: tokenID, Kind: "unknown", Label: "(unregistered token)"}
-	}
-	if !p.Dedup.Allow(ev.TenantID+"|"+tokenID+"|"+channel+"|"+sourceIP, ev.At) {
-		return nil
-	}
-	p.Dispatcher.Enqueue(New(tok, ev))
-	return nil
 }
 
 func truncate(s string, n int) string {

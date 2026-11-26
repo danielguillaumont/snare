@@ -145,7 +145,7 @@ type TenantResolver struct {
 }
 
 type cachedSinks struct {
-	sinks []Sink
+	sinks []Target
 	at    time.Time
 }
 
@@ -156,7 +156,8 @@ func (r *TenantResolver) Invalidate(tenantID string) {
 	r.mu.Unlock()
 }
 
-func (r *TenantResolver) Sinks(ctx context.Context, tenantID string) []Sink {
+// Sinks returns the tenant's sinks, each keyed by its sink id.
+func (r *TenantResolver) Sinks(ctx context.Context, tenantID string) []Target {
 	ttl := r.TTL
 	if ttl == 0 {
 		ttl = 30 * time.Second
@@ -173,7 +174,7 @@ func (r *TenantResolver) Sinks(ctx context.Context, tenantID string) []Sink {
 		r.Log.Error("load tenant sinks", "tenant", tenantID, "err", err)
 		return nil
 	}
-	var sinks []Sink
+	var sinks []Target
 	for _, rec := range recs {
 		cfg, err := OpenConfig(r.Sealer, rec)
 		if err != nil {
@@ -185,7 +186,7 @@ func (r *TenantResolver) Sinks(ctx context.Context, tenantID string) []Sink {
 			r.Log.Error("build tenant sink", "tenant", tenantID, "sink", rec.ID, "err", err)
 			continue
 		}
-		sinks = append(sinks, s)
+		sinks = append(sinks, Target{Ref: rec.ID, Sink: s})
 	}
 	r.mu.Lock()
 	if r.cache == nil {

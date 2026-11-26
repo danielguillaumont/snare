@@ -8,6 +8,7 @@
 //	snare tenant create|list|key|revoke   manage tenants and their API keys (operator key)
 //	snare advise -config F [-tools F]     where to put tripwires for an agent (offline)
 //	snare audit [-tenant ID] [-verify]    audit log, or verify its hash chain (operator key)
+//	snare deliveries [-state S] [-retry ID]  alert deliveries; requeue a dead one
 //	snare plant repo|corpus <dir>         plant honey credentials / canary docs
 //	snare plant mcp -config F             write a decoy MCP server config
 //	snare decoy-mcp -config F             run the decoy MCP server on stdio
@@ -57,6 +58,8 @@ func main() {
 		err = adviseCmd(os.Args[2:])
 	case "audit":
 		err = auditCmd(os.Args[2:])
+	case "deliveries":
+		err = deliveriesCmd(os.Args[2:])
 	case "tenant":
 		err = tenantCmd(os.Args[2:])
 	case "events":
@@ -86,6 +89,7 @@ func usage() {
   snare events [-token ID] [-limit N]
   snare advise -config F [-tools F] [-json]
   snare audit [-tenant ID] [-limit N] [-verify]
+  snare deliveries [-state pending|delivered|dead] [-limit N] [-retry ID]
   snare tenant create -name N | list | key -tenant ID [-role admin|viewer]
                | revoke -key ID | disable -tenant ID | enable -tenant ID
   snare plant repo   [-dry-run] [-manifest F] <dir>

@@ -78,9 +78,10 @@ multi-region. These are listed so their absence is a decision, not an oversight.
 | Elastic | `PUT /<index>/_doc/<finding uid>`, `Authorization: ApiKey <key>`, adds `@timestamp`. The document id is the finding uid, so a retried delivery overwrites instead of duplicating |
 | Microsoft Sentinel | Azure Monitor Logs Ingestion API: `POST {dce}/dataCollectionRules/{dcr}/streams/{stream}?api-version=2023-01-01`. Bearer token from Entra ID client credentials (scope `https://monitor.azure.com//.default`), cached until shortly before expiry |
 
-- **Delivery:** the dispatcher resolves a tenant's sinks when it queues an alert. Each
+- **Delivery:** a tenant's sinks are resolved when the alert is fanned out. Each
   (alert, sink) pair retries on its own, so one dead SIEM doesn't delay the others, and a
-  tenant's sink failures never reach another tenant.
+  tenant's sink failures never reach another tenant. Since M4c the queue is a durable
+  outbox in SQLite rather than memory ([M4c-reliability.md](M4c-reliability.md)).
 - **Egress safety:** sink URLs must be `https`. Hosts that resolve to private, loopback or
   link-local addresses are refused at configuration time and again before each send. Without
   this, a sink becomes an SSRF primitive against our own infrastructure. A dev flag allows
