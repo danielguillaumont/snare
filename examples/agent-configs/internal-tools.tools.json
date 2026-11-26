@@ -1,0 +1,9 @@
+{
+  "acme-ops": {
+    "tools": [
+      { "name": "list_open_tickets", "description": "List open support tickets submitted by customers." },
+      { "name": "get_customer_account", "description": "Look up a customer account, including billing details." },
+      { "name": "post_status_update", "description": "Post a message to the public status page." }
+    ]
+  }
+}

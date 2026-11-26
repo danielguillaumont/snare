@@ -6,6 +6,7 @@
 //	snare mint -kind K -label L           mint a token through the admin API
 //	snare events [-token ID]              list recent tripwire events
 //	snare tenant create|list|key|revoke   manage tenants and their API keys (operator key)
+//	snare advise -config F [-tools F]     where to put tripwires for an agent (offline)
 //	snare audit [-tenant ID] [-verify]    audit log, or verify its hash chain (operator key)
 //	snare plant repo|corpus <dir>         plant honey credentials / canary docs
 //	snare plant mcp -config F             write a decoy MCP server config
@@ -52,6 +53,8 @@ func main() {
 		err = serve()
 	case "mint":
 		err = mint(os.Args[2:])
+	case "advise":
+		err = adviseCmd(os.Args[2:])
 	case "audit":
 		err = auditCmd(os.Args[2:])
 	case "tenant":
@@ -81,6 +84,7 @@ func usage() {
   snare serve
   snare mint -kind K -label L [-memo M]
   snare events [-token ID] [-limit N]
+  snare advise -config F [-tools F] [-json]
   snare audit [-tenant ID] [-limit N] [-verify]
   snare tenant create -name N | list | key -tenant ID [-role admin|viewer]
                | revoke -key ID | disable -tenant ID | enable -tenant ID

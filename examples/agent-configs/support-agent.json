@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "zendesk": { "command": "npx", "args": ["-y", "zendesk-mcp-server"], "env": { "ZENDESK_SUBDOMAIN": "example" } },
+    "gmail": { "command": "npx", "args": ["-y", "@gongrzhe/server-gmail-autoauth-mcp"] },
+    "customer-db": { "command": "uvx", "args": ["mcp-server-postgres", "--read-only"], "env": { "DATABASE_URI": "postgresql://readonly@db.internal/customers" } },
+    "files": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/srv/support/shared-docs"] },
+    "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] }
+  }
+}
