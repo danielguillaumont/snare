@@ -1,0 +1,56 @@
+goos: windows
+goarch: amd64
+pkg: github.com/danielguillaumont/snare/internal/token
+cpu: 11th Gen Intel(R) Core(TM) i7-11370H @ 3.30GHz
+BenchmarkMatch/valid/keys=1-8         	  347365	      3767 ns/op	  13.01 MB/s	     704 B/op	      13 allocs/op
+BenchmarkMatch/valid/keys=1-8         	  332984	      3504 ns/op	  13.98 MB/s	     704 B/op	      13 allocs/op
+BenchmarkMatch/valid/keys=1-8         	  328372	      3567 ns/op	  13.74 MB/s	     704 B/op	      13 allocs/op
+BenchmarkMatch/valid/keys=1-8         	  391126	      3074 ns/op	  15.94 MB/s	     704 B/op	      13 allocs/op
+BenchmarkMatch/valid/keys=1-8         	  394803	      4501 ns/op	  10.89 MB/s	     704 B/op	      13 allocs/op
+BenchmarkMatch/valid-oldest-key/keys=1-8         	  284895	      4331 ns/op	  11.31 MB/s	     704 B/op	      13 allocs/op
+BenchmarkMatch/valid-oldest-key/keys=1-8         	  363152	      4469 ns/op	  10.97 MB/s	     704 B/op	      13 allocs/op
+BenchmarkMatch/valid-oldest-key/keys=1-8         	  324176	      3392 ns/op	  14.45 MB/s	     704 B/op	      13 allocs/op
+BenchmarkMatch/valid-oldest-key/keys=1-8         	  360345	      3326 ns/op	  14.73 MB/s	     704 B/op	      13 allocs/op
+BenchmarkMatch/valid-oldest-key/keys=1-8         	  315588	      3444 ns/op	  14.23 MB/s	     704 B/op	      13 allocs/op
+BenchmarkMatch/junk-same-shape/keys=1-8          	  370818	      3011 ns/op	  16.27 MB/s	     672 B/op	      11 allocs/op
+BenchmarkMatch/junk-same-shape/keys=1-8          	  376687	      3183 ns/op	  15.40 MB/s	     672 B/op	      11 allocs/op
+BenchmarkMatch/junk-same-shape/keys=1-8          	  413430	      3104 ns/op	  15.79 MB/s	     672 B/op	      11 allocs/op
+BenchmarkMatch/junk-same-shape/keys=1-8          	  396079	      3477 ns/op	  14.09 MB/s	     672 B/op	      11 allocs/op
+BenchmarkMatch/junk-same-shape/keys=1-8          	  400800	      2784 ns/op	  17.60 MB/s	     672 B/op	      11 allocs/op
+BenchmarkMatch/8KiB-no-candidate/keys=1-8        	   12938	     85700 ns/op	  95.68 MB/s	    9472 B/op	       1 allocs/op
+BenchmarkMatch/8KiB-no-candidate/keys=1-8        	   13957	     84972 ns/op	  96.50 MB/s	    9472 B/op	       1 allocs/op
+BenchmarkMatch/8KiB-no-candidate/keys=1-8        	   13682	     87323 ns/op	  93.90 MB/s	    9472 B/op	       1 allocs/op
+BenchmarkMatch/8KiB-no-candidate/keys=1-8        	   13748	     88721 ns/op	  92.42 MB/s	    9472 B/op	       1 allocs/op
+BenchmarkMatch/8KiB-no-candidate/keys=1-8        	   10000	    108114 ns/op	  75.85 MB/s	    9472 B/op	       1 allocs/op
+BenchmarkMatch/adversarial-long-run/keys=1-8     	    2341	    576696 ns/op	   3.55 MB/s	  151568 B/op	    2305 allocs/op
+BenchmarkMatch/adversarial-long-run/keys=1-8     	    2174	    588285 ns/op	   3.48 MB/s	  151568 B/op	    2305 allocs/op
+BenchmarkMatch/adversarial-long-run/keys=1-8     	    2043	    545841 ns/op	   3.75 MB/s	  151568 B/op	    2305 allocs/op
+BenchmarkMatch/adversarial-long-run/keys=1-8     	    2084	    558674 ns/op	   3.67 MB/s	  151568 B/op	    2305 allocs/op
+BenchmarkMatch/adversarial-long-run/keys=1-8     	    2070	    620466 ns/op	   3.30 MB/s	  151568 B/op	    2305 allocs/op
+BenchmarkMatch/valid/keys=4-8                    	  331767	      3557 ns/op	  13.78 MB/s	     800 B/op	      14 allocs/op
+BenchmarkMatch/valid/keys=4-8                    	  348019	      4052 ns/op	  12.09 MB/s	     800 B/op	      14 allocs/op
+BenchmarkMatch/valid/keys=4-8                    	  249718	      4214 ns/op	  11.63 MB/s	     800 B/op	      14 allocs/op
+BenchmarkMatch/valid/keys=4-8                    	  263197	      4007 ns/op	  12.23 MB/s	     800 B/op	      14 allocs/op
+BenchmarkMatch/valid/keys=4-8                    	  361314	      3863 ns/op	  12.68 MB/s	     800 B/op	      14 allocs/op
+BenchmarkMatch/valid-oldest-key/keys=4-8         	  135286	      8890 ns/op	   5.51 MB/s	    2384 B/op	      35 allocs/op
+BenchmarkMatch/valid-oldest-key/keys=4-8         	  148328	      8204 ns/op	   5.97 MB/s	    2384 B/op	      35 allocs/op
+BenchmarkMatch/valid-oldest-key/keys=4-8         	  129124	      7935 ns/op	   6.18 MB/s	    2384 B/op	      35 allocs/op
+BenchmarkMatch/valid-oldest-key/keys=4-8         	  124779	      8352 ns/op	   5.87 MB/s	    2384 B/op	      35 allocs/op
+BenchmarkMatch/valid-oldest-key/keys=4-8         	  162782	      8180 ns/op	   5.99 MB/s	    2384 B/op	      35 allocs/op
+BenchmarkMatch/junk-same-shape/keys=4-8          	  150685	      8001 ns/op	   6.12 MB/s	    2352 B/op	      33 allocs/op
+BenchmarkMatch/junk-same-shape/keys=4-8          	  124756	      9108 ns/op	   5.38 MB/s	    2352 B/op	      33 allocs/op
+BenchmarkMatch/junk-same-shape/keys=4-8          	  148879	      8052 ns/op	   6.09 MB/s	    2352 B/op	      33 allocs/op
+BenchmarkMatch/junk-same-shape/keys=4-8          	  172920	      7945 ns/op	   6.17 MB/s	    2352 B/op	      33 allocs/op
+BenchmarkMatch/junk-same-shape/keys=4-8          	  126760	      8426 ns/op	   5.82 MB/s	    2352 B/op	      33 allocs/op
+BenchmarkMatch/8KiB-no-candidate/keys=4-8        	   12597	     92026 ns/op	  89.11 MB/s	    9472 B/op	       1 allocs/op
+BenchmarkMatch/8KiB-no-candidate/keys=4-8        	   13095	     94071 ns/op	  87.17 MB/s	    9472 B/op	       1 allocs/op
+BenchmarkMatch/8KiB-no-candidate/keys=4-8        	   13953	     93025 ns/op	  88.15 MB/s	    9472 B/op	       1 allocs/op
+BenchmarkMatch/8KiB-no-candidate/keys=4-8        	   12523	     90927 ns/op	  90.18 MB/s	    9472 B/op	       1 allocs/op
+BenchmarkMatch/8KiB-no-candidate/keys=4-8        	   12921	     89666 ns/op	  91.45 MB/s	    9472 B/op	       1 allocs/op
+BenchmarkMatch/adversarial-long-run/keys=4-8     	    2383	    466340 ns/op	   4.39 MB/s	  145424 B/op	    1985 allocs/op
+BenchmarkMatch/adversarial-long-run/keys=4-8     	    2713	    602880 ns/op	   3.40 MB/s	  145424 B/op	    1985 allocs/op
+BenchmarkMatch/adversarial-long-run/keys=4-8     	    2439	    580915 ns/op	   3.53 MB/s	  145424 B/op	    1985 allocs/op
+BenchmarkMatch/adversarial-long-run/keys=4-8     	    2679	    454593 ns/op	   4.51 MB/s	  145424 B/op	    1985 allocs/op
+BenchmarkMatch/adversarial-long-run/keys=4-8     	    2787	    494577 ns/op	   4.14 MB/s	  145424 B/op	    1985 allocs/op
+PASS
+ok  	github.com/danielguillaumont/snare/internal/token	77.268s

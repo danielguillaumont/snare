@@ -64,10 +64,7 @@ const (
 var (
 	b32 = base32.StdEncoding.WithPadding(base32.NoPadding)
 
-	v1Candidate = regexp.MustCompile(`snr[a-z2-7]{32}`)
-	b32Run      = regexp.MustCompile(`[a-z2-7]{32,}`)
-	hexRun      = regexp.MustCompile(`[0-9a-f]{40,}`)
-	prefixRE    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,11}$`)
+	prefixRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,11}$`)
 
 	// Reserved prefixes. Real providers' key formats: honey values must never imitate a real
 	// vendor's keys (CLAUDE.md). And "snr", the v1 prefix: it's the public fingerprint v2 removes.
@@ -305,7 +302,7 @@ func (s *Signer) find(text string) (m Match, ok bool, attempts int) {
 		}
 		return false
 	}
-	for _, c := range v1Candidate.FindAllString(text, 8) {
+	for _, c := range v1Candidates(text, 8) {
 		if attempts >= maxAttempts {
 			return Match{}, false, attempts
 		}
@@ -314,10 +311,10 @@ func (s *Signer) find(text string) (m Match, ok bool, attempts int) {
 		}
 	}
 	for _, scan := range []struct {
-		re *regexp.Regexp
-		n  int
-	}{{b32Run, b32Len}, {hexRun, hexLen}} {
-		for _, run := range scan.re.FindAllString(text, 16) {
+		class *[256]bool
+		n     int
+	}{{&b32Class, b32Len}, {&hexClass, hexLen}} {
+		for _, run := range runs(text, scan.class, scan.n, 16) {
 			for off := 0; off+scan.n <= len(run); off++ {
 				if attempts >= maxAttempts {
 					return Match{}, false, attempts

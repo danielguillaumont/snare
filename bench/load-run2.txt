@@ -1,0 +1,6 @@
+| Scenario | Requests | Concurrency | Req/s | p50 | p99 | max | Failed |
+|---|---|---|---|---|---|---|---|
+| junk: scanner paths | 60000 | 32 | 16184 | 1.23ms | 13.31ms | 140.4ms | 0 |
+| junk: forged token-shaped paths | 60000 | 32 | 15506 | 1.32ms | 14.39ms | 109.8ms | 0 |
+| touches: valid tokens, stored and queued | 3000 | 32 | 143 | 120.3ms | 1.58516s | 2.5144s | 0 |
+| touches: repeat tokens, new sources | 3000 | 32 | 170 | 112.94ms | 1.17586s | 2.6865s | 0 |

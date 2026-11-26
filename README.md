@@ -102,6 +102,7 @@ go test ./...       # includes end-to-end tests: plant -> touch -> alert, two-te
 | M4 multi-tenant service, OCSF/SIEM sinks, dashboard, IaC | 🟡 Built and tested; IaC not yet applied |
 | M4b hardening: supply chain, fuzzing, audit log, placement advisor, Slack | ✅ Built |
 | M4c reliability: durable alert outbox, metrics, correlation, SIEM rules, key rotation | ✅ Built |
+| M4d operations: dashboard severity, labels sealed at rest, measured capacity | ✅ Built |
 | M5 design partners | Not started |
 
 Full plan and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).
@@ -117,6 +118,7 @@ Full plan and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).
 | [experiments/killtest/](experiments/killtest/) | The kill-test harness (Python, Claude API) |
 | [cmd/snare](cmd/snare), [internal/](internal/) | Go CLI and services: callback server (M1), decoy MCP server and planting (M2), tenancy, sinks and dashboard (M4) |
 | [detections/](detections/) | Splunk, Sentinel, Elastic and Sigma rules for Snare findings, checked in CI |
+| [bench/](bench/) | Raw benchmark and load-test output behind [docs/results-bench.md](docs/results-bench.md) |
 | [deploy/](deploy/), [Dockerfile](Dockerfile), [scripts/](scripts/) | M4: Terraform for AWS, Caddy config, secrets bootstrap and the post-deploy smoke test |
 | [examples/](examples/) | Sample repo and RAG corpus used as planting targets in tests |
 | [CLAUDE.md](CLAUDE.md) | Working rules for Claude Code in this repo |
