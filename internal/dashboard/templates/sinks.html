@@ -1,0 +1,11 @@
+{{template "head" "Sinks"}}
+{{template "nav" .S}}
+<main>
+  <h1>Alert sinks</h1>
+  <p class="muted">Credentials are sealed at rest and never shown here. Add or remove sinks with <code>/api/sinks</code>.</p>
+  <table>
+    <thead><tr><th>ID</th><th>Type</th><th>Created (UTC)</th></tr></thead>
+    <tbody>{{range .Sinks}}<tr><td><code>{{.ID}}</code></td><td>{{.Type}}</td><td>{{ts .CreatedAt}}</td></tr>{{else}}<tr><td colspan="3" class="muted">No tenant sinks. Alerts still go to the operator's sinks.</td></tr>{{end}}</tbody>
+  </table>
+</main>
+{{template "foot"}}

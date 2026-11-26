@@ -6,7 +6,6 @@ package alert
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -15,42 +14,69 @@ import (
 	"github.com/danielguillaumont/snare/internal/store"
 )
 
-// Alert follows the shape of OCSF Detection Finding (class_uid 2004) so SIEMs can ingest
-// it without reshaping. Snare-specific fields live under Unmapped.
+// Alert is an OCSF 1.3 Detection Finding (class_uid 2004), so SIEMs can ingest it without
+// reshaping. ocsf_test.go checks every required attribute and enumeration we emit. Snare's own
+// fields live under Unmapped.
 type Alert struct {
-	ClassUID    int         `json:"class_uid"`
-	ClassName   string      `json:"class_name"`
-	CategoryUID int         `json:"category_uid"`
-	ActivityID  int         `json:"activity_id"`
-	SeverityID  int         `json:"severity_id"`
-	Severity    string      `json:"severity"`
-	Time        int64       `json:"time"` // epoch ms
-	Message     string      `json:"message"`
-	FindingInfo FindingInfo `json:"finding_info"`
-	SrcEndpoint Endpoint    `json:"src_endpoint"`
-	Metadata    Metadata    `json:"metadata"`
-	Unmapped    Unmapped    `json:"unmapped"`
+	ActivityID   int          `json:"activity_id"`
+	ActivityName string       `json:"activity_name"`
+	CategoryUID  int          `json:"category_uid"`
+	CategoryName string       `json:"category_name"`
+	ClassUID     int          `json:"class_uid"`
+	ClassName    string       `json:"class_name"`
+	TypeUID      int          `json:"type_uid"`
+	TypeName     string       `json:"type_name"`
+	SeverityID   int          `json:"severity_id"`
+	Severity     string       `json:"severity"`
+	StatusID     int          `json:"status_id"`
+	Status       string       `json:"status"`
+	Time         int64        `json:"time"` // epoch ms
+	Message      string       `json:"message"`
+	FindingInfo  FindingInfo  `json:"finding_info"`
+	SrcEndpoint  Endpoint     `json:"src_endpoint"`
+	Observables  []Observable `json:"observables"`
+	Metadata     Metadata     `json:"metadata"`
+	Unmapped     Unmapped     `json:"unmapped"`
 }
 
 type FindingInfo struct {
 	UID           string   `json:"uid"`
 	Title         string   `json:"title"`
+	Desc          string   `json:"desc,omitempty"`
 	Types         []string `json:"types"`
 	FirstSeenTime int64    `json:"first_seen_time"`
+	Analytic      Analytic `json:"analytic"`
+}
+
+// Analytic names the detection logic: a deterministic rule ("this token was used").
+type Analytic struct {
+	Name   string `json:"name"`
+	TypeID int    `json:"type_id"` // 1 = Rule
+	Type   string `json:"type"`
 }
 
 type Endpoint struct {
 	IP string `json:"ip"`
 }
 
+type Observable struct {
+	Name   string `json:"name"`
+	TypeID int    `json:"type_id"`
+	Type   string `json:"type"`
+	Value  string `json:"value"`
+}
+
 type Metadata struct {
-	Version string  `json:"version"`
-	Product Product `json:"product"`
+	Version   string  `json:"version"` // OCSF schema version
+	Product   Product `json:"product"`
+	TenantUID string  `json:"tenant_uid,omitempty"`
+	UID       string  `json:"uid"`
 }
 
 type Product struct {
 	Name       string `json:"name"`
 	VendorName string `json:"vendor_name"`
+	Version    string `json:"version"`
 }
 
 type Unmapped struct {
@@ -63,26 +89,42 @@ type Unmapped struct {
 	EventID int64  `json:"event_id"`
 }
 
+// ProductVersion is reported in metadata.product.version.
+var ProductVersion = "0.4.0"
+
 // New builds an alert for one event on one token.
 func New(tok store.Token, ev store.Event) Alert {
 	ms := ev.At.UnixMilli()
+	uid := fmt.Sprintf("snare-%s-%d", tok.ID, ev.ID)
 	return Alert{
-		ClassUID:    2004,
-		ClassName:   "Detection Finding",
-		CategoryUID: 2,
-		ActivityID:  1, // Create
-		SeverityID:  4, // High: legitimate work never touches a tripwire
-		Severity:    "High",
-		Time:        ms,
-		Message:     fmt.Sprintf("Snare tripwire touched via %s: %s", ev.Channel, tok.Label),
+		ActivityID: 1, ActivityName: "Create",
+		CategoryUID: 2, CategoryName: "Findings",
+		ClassUID: 2004, ClassName: "Detection Finding",
+		TypeUID: 200401, TypeName: "Detection Finding: Create",
+		SeverityID: 4, Severity: "High", // legitimate work never touches a tripwire
+		StatusID: 1, Status: "New",
+		Time:    ms,
+		Message: fmt.Sprintf("Snare tripwire touched via %s: %s", ev.Channel, tok.Label),
 		FindingInfo: FindingInfo{
-			UID:           fmt.Sprintf("snare-%s-%d", tok.ID, ev.ID),
-			Title:         "Tripwire touched: " + tok.Label,
+			UID:   uid,
+			Title: "Tripwire touched: " + tok.Label,
+			Desc: "A planted Snare tripwire was used. No legitimate workflow uses it, so treat the " +
+				"source as compromised or misdirected until shown otherwise.",
 			Types:         []string{"tripwire/" + tok.Kind},
 			FirstSeenTime: ms,
+			Analytic:      Analytic{Name: "snare-tripwire-" + tok.Kind, TypeID: 1, Type: "Rule"},
 		},
 		SrcEndpoint: Endpoint{IP: ev.SourceIP},
-		Metadata:    Metadata{Version: "1.3.0", Product: Product{Name: "Snare", VendorName: "Snare"}},
+		Observables: []Observable{
+			{Name: "src_endpoint.ip", TypeID: 2, Type: "IP Address", Value: ev.SourceIP},
+			{Name: "unmapped.token_id", TypeID: 99, Type: "Other", Value: tok.ID},
+		},
+		Metadata: Metadata{
+			Version:   "1.3.0",
+			Product:   Product{Name: "Snare", VendorName: "Snare", Version: ProductVersion},
+			TenantUID: ev.TenantID,
+			UID:       uid,
+		},
 		Unmapped: Unmapped{
 			TokenID: tok.ID, Kind: tok.Kind, Label: tok.Label, Memo: tok.Memo,
 			Channel: ev.Channel, Detail: ev.Detail, EventID: ev.ID,
@@ -126,14 +168,26 @@ func (d *Dedup) Allow(key string, now time.Time) bool {
 	return true
 }
 
-// Dispatcher delivers alerts to sinks from a bounded queue with retries.
+// Resolver returns a tenant's own sinks. It is consulted when an alert is queued.
+type Resolver interface {
+	Sinks(ctx context.Context, tenantID string) []Sink
+}
+
+// Dispatcher delivers alerts from a bounded queue with retries. Each (alert, sink) pair is
+// one job, retried on its own, so a dead SIEM delays nobody else's alerts.
 type Dispatcher struct {
-	sinks    []Sink
-	queue    chan Alert
+	sinks    []Sink // operator sinks: every alert
+	resolver Resolver
+	queue    chan job
 	attempts int
 	backoff  time.Duration
 	log      *slog.Logger
 	wg       sync.WaitGroup
+}
+
+type job struct {
+	a    Alert
+	sink Sink
 }
 
 type DispatcherOpts struct {
@@ -141,6 +195,7 @@ type DispatcherOpts struct {
 	Workers   int
 	Attempts  int
 	Backoff   time.Duration // first retry delay; doubles each attempt
+	Resolver  Resolver      // optional: per-tenant sinks
 }
 
 func NewDispatcher(log *slog.Logger, opts DispatcherOpts, sinks ...Sink) *Dispatcher {
@@ -148,7 +203,7 @@ func NewDispatcher(log *slog.Logger, opts DispatcherOpts, sinks ...Sink) *Dispat
 		opts.QueueSize = 1024
 	}
 	if opts.Workers <= 0 {
-		opts.Workers = 2
+		opts.Workers = 4
 	}
 	if opts.Attempts <= 0 {
 		opts.Attempts = 3
@@ -156,7 +211,8 @@ func NewDispatcher(log *slog.Logger, opts DispatcherOpts, sinks ...Sink) *Dispat
 	if opts.Backoff <= 0 {
 		opts.Backoff = 250 * time.Millisecond
 	}
-	d := &Dispatcher{sinks: sinks, queue: make(chan Alert, opts.QueueSize), attempts: opts.Attempts, backoff: opts.Backoff, log: log}
+	d := &Dispatcher{sinks: sinks, resolver: opts.Resolver, queue: make(chan job, opts.QueueSize),
+		attempts: opts.Attempts, backoff: opts.Backoff, log: log}
 	for i := 0; i < opts.Workers; i++ {
 		d.wg.Add(1)
 		go d.work()
@@ -164,15 +220,25 @@ func NewDispatcher(log *slog.Logger, opts DispatcherOpts, sinks ...Sink) *Dispat
 	return d
 }
 
-// Enqueue never blocks. It returns false if the queue is full (the event is still stored).
+// Enqueue never blocks on delivery. It returns false if any delivery was dropped because the
+// queue was full (the event itself is always stored first).
 func (d *Dispatcher) Enqueue(a Alert) bool {
-	select {
-	case d.queue <- a:
-		return true
-	default:
-		d.log.Warn("alert queue full; alert dropped (event stored)", "finding", a.FindingInfo.UID)
-		return false
+	targets := append([]Sink(nil), d.sinks...)
+	if d.resolver != nil && a.Metadata.TenantUID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		targets = append(targets, d.resolver.Sinks(ctx, a.Metadata.TenantUID)...)
+		cancel()
 	}
+	ok := true
+	for _, s := range targets {
+		select {
+		case d.queue <- job{a: a, sink: s}:
+		default:
+			ok = false
+			d.log.Warn("alert queue full; delivery dropped (event stored)", "finding", a.FindingInfo.UID, "sink", s.Name())
+		}
+	}
+	return ok
 }
 
 // Close stops accepting alerts and waits for queued ones to be delivered or fail.
@@ -183,10 +249,8 @@ func (d *Dispatcher) Close() {
 
 func (d *Dispatcher) work() {
 	defer d.wg.Done()
-	for a := range d.queue {
-		for _, s := range d.sinks {
-			d.deliver(s, a)
-		}
+	for j := range d.queue {
+		d.deliver(j.sink, j.a)
 	}
 }
 
@@ -194,7 +258,7 @@ func (d *Dispatcher) deliver(s Sink, a Alert) {
 	delay := d.backoff
 	var err error
 	for i := 1; i <= d.attempts; i++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		err = s.Send(ctx, a)
 		cancel()
 		if err == nil {
@@ -205,7 +269,8 @@ func (d *Dispatcher) deliver(s Sink, a Alert) {
 			delay *= 2
 		}
 	}
-	d.log.Error("alert delivery failed", "sink", s.Name(), "finding", a.FindingInfo.UID, "err", err)
+	d.log.Error("alert delivery failed", "sink", s.Name(), "tenant", a.Metadata.TenantUID,
+		"finding", a.FindingInfo.UID, "err", err)
 }
 
 // Pipeline records hits and dispatches alerts.
@@ -223,22 +288,18 @@ func (p *Pipeline) Hit(ctx context.Context, tokenID, channel, sourceIP, detail s
 	if p.Now != nil {
 		now = p.Now
 	}
-	ev := store.Event{TokenID: tokenID, Channel: channel, SourceIP: sourceIP, Detail: truncate(detail, 512), At: now().UTC()}
-	id, err := p.Store.AddEvent(ctx, ev)
+	tok, ev, found, err := p.Store.RecordHit(ctx, store.Event{
+		TokenID: tokenID, Channel: channel, SourceIP: sourceIP, Detail: truncate(detail, 512), At: now().UTC(),
+	})
 	if err != nil {
 		return fmt.Errorf("record event: %w", err)
 	}
-	ev.ID = id
-
-	tok, err := p.Store.GetToken(ctx, tokenID)
-	if errors.Is(err, store.ErrNotFound) {
-		// Valid signature means we minted it; the record may be from another instance or deleted.
+	if !found {
+		// Valid signature means we minted it; the record may be from another instance or
+		// deleted. No tenant owns it, so it reaches operator sinks only.
 		tok = store.Token{ID: tokenID, Kind: "unknown", Label: "(unregistered token)"}
-	} else if err != nil {
-		return fmt.Errorf("load token: %w", err)
 	}
-
-	if !p.Dedup.Allow(tokenID+"|"+channel+"|"+sourceIP, ev.At) {
+	if !p.Dedup.Allow(ev.TenantID+"|"+tokenID+"|"+channel+"|"+sourceIP, ev.At) {
 		return nil
 	}
 	p.Dispatcher.Enqueue(New(tok, ev))

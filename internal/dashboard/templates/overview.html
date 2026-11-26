@@ -1,0 +1,31 @@
+{{template "head" "Tokens"}}
+{{template "nav" .S}}
+<main>
+  <section class="stats">
+    <div><b>{{len .Tokens}}</b> tokens</div>
+    <div><b>{{.TouchedCount}}</b> touched (last {{len .Events}} events)</div>
+  </section>
+  <h2>Recent touches</h2>
+  {{if .Events}}
+  <table>
+    <thead><tr><th>Time (UTC)</th><th>Token</th><th>Channel</th><th>Source</th><th>Detail</th></tr></thead>
+    <tbody>
+    {{range .Events}}<tr class="hit">
+      <td>{{ts .At}}</td><td><a href="/tokens/{{.TokenID}}">{{if .Label}}{{.Label}}{{else}}{{.TokenID}}{{end}}</a></td>
+      <td>{{.Channel}}</td><td><code>{{.SourceIP}}</code></td><td class="detail">{{.Detail}}</td>
+    </tr>{{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="muted">No touches yet. That is the expected state: a tripwire only fires when something reads what it shouldn't.</p>{{end}}
+  <h2>Tokens</h2>
+  <table>
+    <thead><tr><th>Label</th><th>Kind</th><th>Created (UTC)</th><th>Status</th></tr></thead>
+    <tbody>
+    {{range .Tokens}}<tr>
+      <td><a href="/tokens/{{.ID}}">{{.Label}}</a></td><td>{{.Kind}}</td><td>{{ts .CreatedAt}}</td>
+      <td>{{if index $.Touched .ID}}<span class="tag hit">touched</span>{{else}}<span class="tag">armed</span>{{end}}</td>
+    </tr>{{else}}<tr><td colspan="4" class="muted">No tokens. Mint one with <code>snare mint</code> or <code>POST /api/tokens</code>.</td></tr>{{end}}
+    </tbody>
+  </table>
+</main>
+{{template "foot"}}

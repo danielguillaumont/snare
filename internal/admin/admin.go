@@ -1,15 +1,28 @@
-// Package admin serves the authenticated management API: mint tokens, list tokens and events.
-// It listens on its own address (default localhost), separate from the public listeners.
+// Package admin serves the authenticated management API. It listens on its own address
+// (default localhost), separate from the public listeners.
+//
+// Tenancy (docs/M4-saas.md): the tenant comes only from the authenticated credential.
+//   - A tenant API key (snk_...) acts on its own tenant, nothing else.
+//   - The operator key (SNARE_ADMIN_KEY) manages tenants on /api/operator/..., and acts on a
+//     tenant's data only when it names that tenant in X-Snare-Tenant (default: "default", so
+//     single-team installs and `snare plant` keep working unchanged).
 package admin
 
 import (
+	"bufio"
+	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/danielguillaumont/snare/internal/alert"
+	"github.com/danielguillaumont/snare/internal/egress"
+	"github.com/danielguillaumont/snare/internal/seal"
 	"github.com/danielguillaumont/snare/internal/store"
 	"github.com/danielguillaumont/snare/internal/token"
 )
@@ -19,8 +32,11 @@ var Kinds = map[string]bool{
 	"canary_url": true, "canary_instruction": true, "other": true,
 }
 
+// TenantHeader lets the operator key act on one tenant's data.
+const TenantHeader = "X-Snare-Tenant"
+
 type API struct {
-	Key       []byte
+	Key       []byte // operator key
 	Signer    *token.Signer
 	Store     *store.Store
 	PublicURL string // e.g. https://cb.example.com
@@ -29,6 +45,11 @@ type API struct {
 	URLPath string
 	Zone    string // e.g. cb.example.com.
 	Log     *slog.Logger
+
+	// Tenant sinks (M4). With Sealer nil, sink endpoints answer 503.
+	Sealer   *seal.Sealer
+	Egress   egress.Policy
+	Resolver *alert.TenantResolver
 }
 
 type MintRequest struct {
@@ -59,25 +80,141 @@ func NormalizeURLPath(p string) string {
 	return "/" + p + "/"
 }
 
+// Principal is who is calling, as established by Authenticate.
+type Principal struct {
+	Operator bool
+	TenantID string // the tenant this request acts on ("" for operator-only routes)
+	Role     string // store.RoleAdmin or store.RoleViewer; operator acts as admin
+	KeyID    string // tenant key id ("" for the operator)
+}
+
+type ctxKey struct{}
+
+func principal(r *http.Request) Principal { return r.Context().Value(ctxKey{}).(Principal) }
+
+// Access levels for routes.
+const (
+	AccessViewer   = "viewer"   // any key of the tenant
+	AccessAdmin    = "admin"    // a tenant admin key, or the operator
+	AccessOperator = "operator" // the operator key only
+)
+
+// Route is one authenticated endpoint. The isolation test iterates Routes(), so an endpoint
+// can't be added without a cross-tenant case.
+type Route struct {
+	Pattern string // "METHOD /path"
+	Access  string
+	handler func(*API) http.HandlerFunc
+}
+
+func Routes() []Route {
+	h := func(f func(*API, http.ResponseWriter, *http.Request)) func(*API) http.HandlerFunc {
+		return func(a *API) http.HandlerFunc { return func(w http.ResponseWriter, r *http.Request) { f(a, w, r) } }
+	}
+	return []Route{
+		{"POST /api/tokens", AccessAdmin, h((*API).mint)},
+		{"GET /api/tokens", AccessViewer, h((*API).listTokens)},
+		{"GET /api/tokens/{id}", AccessViewer, h((*API).getToken)},
+		{"GET /api/events", AccessViewer, h((*API).listEvents)},
+		{"GET /api/events/export", AccessViewer, h((*API).exportEvents)},
+		{"GET /api/sinks", AccessViewer, h((*API).listSinks)},
+		{"POST /api/sinks", AccessAdmin, h((*API).createSink)},
+		{"DELETE /api/sinks/{id}", AccessAdmin, h((*API).deleteSink)},
+		{"POST /api/sinks/{id}/test", AccessAdmin, h((*API).testSink)},
+		{"GET /api/operator/tenants", AccessOperator, h((*API).listTenants)},
+		{"POST /api/operator/tenants", AccessOperator, h((*API).createTenant)},
+		{"POST /api/operator/tenants/{id}/disable", AccessOperator, func(a *API) http.HandlerFunc { return a.setDisabled(true) }},
+		{"POST /api/operator/tenants/{id}/enable", AccessOperator, func(a *API) http.HandlerFunc { return a.setDisabled(false) }},
+		{"GET /api/operator/tenants/{id}/keys", AccessOperator, h((*API).listKeys)},
+		{"POST /api/operator/tenants/{id}/keys", AccessOperator, h((*API).createKey)},
+		{"DELETE /api/operator/keys/{id}", AccessOperator, h((*API).revokeKey)},
+	}
+}
+
 func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
-	mux.Handle("POST /api/tokens", a.auth(http.HandlerFunc(a.mint)))
-	mux.Handle("GET /api/tokens", a.auth(http.HandlerFunc(a.listTokens)))
-	mux.Handle("GET /api/events", a.auth(http.HandlerFunc(a.listEvents)))
+	for _, rt := range Routes() {
+		var h http.Handler
+		switch rt.Access {
+		case AccessOperator:
+			h = a.operatorOnly(rt.handler(a))
+		case AccessAdmin:
+			h = a.tenantOnly(store.RoleAdmin, rt.handler(a))
+		default:
+			h = a.tenantOnly(store.RoleViewer, rt.handler(a))
+		}
+		mux.Handle(rt.Pattern, a.auth(h))
+	}
 	return mux
+}
+
+// Authenticate resolves the bearer credential and, for the operator, the target tenant.
+func (a *API) Authenticate(r *http.Request) (Principal, int, string) {
+	got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok || got == "" {
+		return Principal{}, http.StatusUnauthorized, "unauthorized"
+	}
+	named := strings.TrimSpace(r.Header.Get(TenantHeader))
+	if len(a.Key) > 0 && subtle.ConstantTimeCompare([]byte(got), a.Key) == 1 {
+		p := Principal{Operator: true, Role: store.RoleAdmin, TenantID: store.DefaultTenant}
+		if named != "" {
+			if _, err := a.Store.Operator().GetTenant(r.Context(), named); err != nil {
+				return Principal{}, http.StatusNotFound, "unknown tenant"
+			}
+			p.TenantID = named
+		}
+		return p, 0, ""
+	}
+	k, err := a.Store.Authenticate(r.Context(), got)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			a.Log.Error("authenticate", "err", err)
+		}
+		return Principal{}, http.StatusUnauthorized, "unauthorized"
+	}
+	if named != "" && named != k.TenantID {
+		return Principal{}, http.StatusForbidden, "a tenant key acts on its own tenant only"
+	}
+	return Principal{TenantID: k.TenantID, Role: k.Role, KeyID: k.ID}, 0, ""
 }
 
 func (a *API) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok || subtle.ConstantTimeCompare([]byte(got), a.Key) != 1 {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		p, code, msg := a.Authenticate(r)
+		if code != 0 {
+			writeJSON(w, code, map[string]string{"error": msg})
 			return
 		}
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, p)))
 	})
 }
+
+func (a *API) tenantOnly(minRole string, next http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := principal(r)
+		if minRole == store.RoleAdmin && p.Role != store.RoleAdmin {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "this key is read-only"})
+			return
+		}
+		next(w, r)
+	})
+}
+
+func (a *API) operatorOnly(next http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !principal(r).Operator {
+			// Same answer as an unknown route would give a tenant: nothing to learn here.
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		next(w, r)
+	})
+}
+
+func (a *API) view(r *http.Request) store.TenantStore { return a.Store.Tenant(principal(r).TenantID) }
+
+// --------------------------------------------------------------------------- tokens and events
 
 func (a *API) mint(w http.ResponseWriter, r *http.Request) {
 	var req MintRequest
@@ -99,7 +236,7 @@ func (a *API) mint(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, "mint", err)
 		return
 	}
-	if err := a.Store.CreateToken(r.Context(), store.Token{ID: id, Kind: req.Kind, Label: req.Label, Memo: req.Memo}); err != nil {
+	if err := a.view(r).CreateToken(r.Context(), store.Token{ID: id, Kind: req.Kind, Label: req.Label, Memo: req.Memo}); err != nil {
 		a.fail(w, "store token", err)
 		return
 	}
@@ -116,7 +253,7 @@ func (a *API) mint(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) listTokens(w http.ResponseWriter, r *http.Request) {
-	toks, err := a.Store.ListTokens(r.Context())
+	toks, err := a.view(r).ListTokens(r.Context())
 	if err != nil {
 		a.fail(w, "list tokens", err)
 		return
@@ -124,15 +261,302 @@ func (a *API) listTokens(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, nonNil(toks))
 }
 
+func (a *API) getToken(w http.ResponseWriter, r *http.Request) {
+	t, err := a.view(r).GetToken(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if err != nil {
+		a.fail(w, "get token", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
 func (a *API) listEvents(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	evs, err := a.Store.ListEvents(r.Context(), r.URL.Query().Get("token"), limit)
+	evs, err := a.view(r).ListEvents(r.Context(), r.URL.Query().Get("token"), limit)
 	if err != nil {
 		a.fail(w, "list events", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, nonNil(evs))
 }
+
+// exportEvents streams the tenant's events as OCSF Detection Findings, one JSON object per
+// line, oldest first. `since` is RFC 3339 or epoch milliseconds.
+func (a *API) exportEvents(w http.ResponseWriter, r *http.Request) {
+	var since time.Time
+	if s := r.URL.Query().Get("since"); s != "" {
+		if ms, err := strconv.ParseInt(s, 10, 64); err == nil {
+			since = time.UnixMilli(ms)
+		} else if t, err := time.Parse(time.RFC3339, s); err == nil {
+			since = t
+		} else {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "since: RFC 3339 or epoch ms"})
+			return
+		}
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	v := a.view(r)
+	evs, err := v.EventsSince(r.Context(), since, limit)
+	if err != nil {
+		a.fail(w, "export events", err)
+		return
+	}
+	toks, err := v.ListTokens(r.Context())
+	if err != nil {
+		a.fail(w, "export tokens", err)
+		return
+	}
+	byID := make(map[string]store.Token, len(toks))
+	for _, t := range toks {
+		byID[t.ID] = t
+	}
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	bw := bufio.NewWriter(w)
+	enc := json.NewEncoder(bw)
+	for _, e := range evs {
+		_ = enc.Encode(alert.New(byID[e.TokenID], e))
+	}
+	_ = bw.Flush()
+}
+
+// --------------------------------------------------------------------------- sinks
+
+type sinkView struct {
+	ID        string            `json:"id"`
+	Type      string            `json:"type"`
+	Config    map[string]string `json:"config"` // secrets removed
+	CreatedAt time.Time         `json:"created_at"`
+}
+
+func (a *API) sinksEnabled(w http.ResponseWriter) bool {
+	if a.Sealer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "tenant sinks are disabled: set SNARE_SEAL_KEY"})
+		return false
+	}
+	return true
+}
+
+func (a *API) listSinks(w http.ResponseWriter, r *http.Request) {
+	if !a.sinksEnabled(w) {
+		return
+	}
+	recs, err := a.view(r).ListSinks(r.Context())
+	if err != nil {
+		a.fail(w, "list sinks", err)
+		return
+	}
+	out := []sinkView{}
+	for _, rec := range recs {
+		v := sinkView{ID: rec.ID, Type: rec.Type, CreatedAt: rec.CreatedAt}
+		if cfg, err := alert.OpenConfig(a.Sealer, rec); err == nil {
+			v.Config = cfg.Public()
+		} else {
+			v.Config = map[string]string{"error": "config does not open (seal key changed?)"}
+		}
+		out = append(out, v)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (a *API) createSink(w http.ResponseWriter, r *http.Request) {
+	if !a.sinksEnabled(w) {
+		return
+	}
+	var cfg alert.SinkConfig
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&cfg); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if err := cfg.Validate(r.Context(), a.Egress); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	v := a.view(r)
+	id := store.NewID("sk_")
+	blob, err := alert.SealConfig(a.Sealer, cfg, v.TenantID(), id)
+	if err != nil {
+		a.fail(w, "seal sink", err)
+		return
+	}
+	rec := store.SinkRecord{ID: id, Type: cfg.Type, Config: blob}
+	if err := v.CreateSink(r.Context(), rec); err != nil {
+		a.fail(w, "store sink", err)
+		return
+	}
+	if a.Resolver != nil {
+		a.Resolver.Invalidate(v.TenantID())
+	}
+	writeJSON(w, http.StatusCreated, sinkView{ID: id, Type: cfg.Type, Config: cfg.Public(), CreatedAt: time.Now().UTC()})
+}
+
+func (a *API) deleteSink(w http.ResponseWriter, r *http.Request) {
+	if !a.sinksEnabled(w) {
+		return
+	}
+	v := a.view(r)
+	err := v.DeleteSink(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if err != nil {
+		a.fail(w, "delete sink", err)
+		return
+	}
+	if a.Resolver != nil {
+		a.Resolver.Invalidate(v.TenantID())
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// testSink sends a clearly marked synthetic finding, so a team can check their SIEM mapping
+// without touching a tripwire.
+func (a *API) testSink(w http.ResponseWriter, r *http.Request) {
+	if !a.sinksEnabled(w) {
+		return
+	}
+	v := a.view(r)
+	recs, err := v.ListSinks(r.Context())
+	if err != nil {
+		a.fail(w, "list sinks", err)
+		return
+	}
+	for _, rec := range recs {
+		if rec.ID != r.PathValue("id") {
+			continue
+		}
+		cfg, err := alert.OpenConfig(a.Sealer, rec)
+		if err != nil {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "config does not open"})
+			return
+		}
+		s, err := cfg.Build(a.Egress.Client(10 * time.Second))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		al := alert.New(store.Token{ID: "test", Kind: "test", Label: "Snare test alert (not a real touch)"},
+			store.Event{ID: 0, TenantID: v.TenantID(), TokenID: "test", Channel: "test", SourceIP: "192.0.2.1", At: time.Now().UTC()})
+		al.SeverityID, al.Severity = 1, "Informational"
+		if err := s.Send(r.Context(), al); err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "delivery failed: " + err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "delivered"})
+		return
+	}
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+}
+
+// --------------------------------------------------------------------------- operator
+
+func (a *API) listTenants(w http.ResponseWriter, r *http.Request) {
+	ts, err := a.Store.Operator().ListTenants(r.Context())
+	if err != nil {
+		a.fail(w, "list tenants", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, nonNil(ts))
+}
+
+func (a *API) createTenant(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" || len(req.Name) > 100 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name required (max 100 chars)"})
+		return
+	}
+	t, err := a.Store.Operator().CreateTenant(r.Context(), req.Name)
+	if err != nil {
+		a.fail(w, "create tenant", err)
+		return
+	}
+	a.Log.Info("tenant created", "tenant", t.ID)
+	writeJSON(w, http.StatusCreated, t)
+}
+
+func (a *API) setDisabled(disabled bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if id == store.DefaultTenant && disabled {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "the default tenant cannot be disabled"})
+			return
+		}
+		err := a.Store.Operator().SetTenantDisabled(r.Context(), id, disabled)
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		if err != nil {
+			a.fail(w, "set tenant state", err)
+			return
+		}
+		a.Log.Info("tenant state changed", "tenant", id, "disabled", disabled)
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func (a *API) listKeys(w http.ResponseWriter, r *http.Request) {
+	ks, err := a.Store.Operator().ListAPIKeys(r.Context(), r.PathValue("id"))
+	if err != nil {
+		a.fail(w, "list keys", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, nonNil(ks))
+}
+
+func (a *API) createKey(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Role string `json:"role"`
+	}
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req)
+	if req.Role == "" {
+		req.Role = store.RoleAdmin
+	}
+	plain, k, err := a.Store.Operator().CreateAPIKey(r.Context(), r.PathValue("id"), req.Role)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	case err != nil && strings.Contains(err.Error(), "unknown role"):
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	case err != nil:
+		a.fail(w, "create key", err)
+		return
+	}
+	a.Log.Info("api key issued", "tenant", k.TenantID, "key", k.ID, "role", k.Role)
+	writeJSON(w, http.StatusCreated, struct {
+		store.APIKey
+		Key string `json:"key"` // shown once
+	}{k, plain})
+}
+
+func (a *API) revokeKey(w http.ResponseWriter, r *http.Request) {
+	err := a.Store.Operator().RevokeAPIKey(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if err != nil {
+		a.fail(w, "revoke key", err)
+		return
+	}
+	a.Log.Info("api key revoked", "key", r.PathValue("id"))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --------------------------------------------------------------------------- helpers
 
 func (a *API) fail(w http.ResponseWriter, what string, err error) {
 	a.Log.Error(what, "err", err)
@@ -148,6 +572,7 @@ func nonNil[T any](s []T) []T {
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
 }

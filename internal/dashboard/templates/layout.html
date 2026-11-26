@@ -1,0 +1,17 @@
+{{define "head"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.}} · Snare</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>{{end}}
+{{define "nav"}}<header class="bar">
+  <a class="brand" href="/">snare</a>
+  <nav><a href="/">Tokens</a> <a href="/sinks">Sinks</a></nav>
+  <span class="who">tenant <code>{{.TenantID}}</code> · {{.Role}}</span>
+  <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Sign out</button></form>
+</header>{{end}}
+{{define "foot"}}</body>
+</html>{{end}}

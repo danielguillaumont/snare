@@ -1,0 +1,16 @@
+{{template "head" .Token.Label}}
+{{template "nav" .S}}
+<main>
+  <h1>{{.Token.Label}}</h1>
+  <dl>
+    <dt>ID</dt><dd><code>{{.Token.ID}}</code></dd>
+    <dt>Kind</dt><dd>{{.Token.Kind}}</dd>
+    <dt>Created</dt><dd>{{ts .Token.CreatedAt}}</dd>
+  </dl>
+  <h2>Touches ({{len .Events}})</h2>
+  {{if .Events}}<table>
+    <thead><tr><th>Time (UTC)</th><th>Channel</th><th>Source</th><th>Detail</th></tr></thead>
+    <tbody>{{range .Events}}<tr class="hit"><td>{{ts .At}}</td><td>{{.Channel}}</td><td><code>{{.SourceIP}}</code></td><td class="detail">{{.Detail}}</td></tr>{{end}}</tbody>
+  </table>{{else}}<p class="muted">Not touched.</p>{{end}}
+</main>
+{{template "foot"}}
