@@ -1,6 +1,6 @@
 #!/bin/bash
-# Snare instance bootstrap (Amazon Linux 2023, arm64). Rendered by Terraform; Terraform
-# interpolations are ${...}, shell variables are written without braces or as $${...}.
+# Snare instance bootstrap (Amazon Linux 2023, arm64), rendered by Terraform templatefile().
+# Template values use dollar-brace; shell variables are brace-free or escaped with a double dollar.
 set -euo pipefail
 exec > >(tee /var/log/snare-bootstrap.log) 2>&1
 

@@ -89,7 +89,7 @@ resource "aws_eip_association" "main" {
 }
 
 resource "aws_dlm_lifecycle_policy" "data" {
-  description        = "snare data volume, daily"
+  description        = "snare data volume daily snapshots"
   execution_role_arn = aws_iam_role.dlm.arn
   state              = "ENABLED"
   policy_details {
