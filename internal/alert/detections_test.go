@@ -25,7 +25,8 @@ const detectionsDir = "../../detections"
 // ocsfPath matches the OCSF attribute paths rules refer to.
 var ocsfPath = regexp.MustCompile(`\b(class_uid|severity_id|metadata(?:\.[a-z_]+)+|finding_info(?:\.[a-z_]+)+|src_endpoint(?:\.[a-z_]+)+|unmapped(?:\.[a-z_]+)+)\b`)
 
-// realAlert is what the outbox delivers for the second of two tripwires touched by one source.
+// realAlert is what the outbox delivers for the second of two tripwires touched by one
+// source, both reported by one gateway session.
 func realAlert(t *testing.T) Alert {
 	t.Helper()
 	ctx := context.Background()
@@ -34,8 +35,8 @@ func realAlert(t *testing.T) Alert {
 	_ = v.CreateToken(ctx, store.Token{ID: "tok1", Kind: "honey_credential", Label: "payments .env"})
 	_ = v.CreateToken(ctx, store.Token{ID: "tok2", Kind: "decoy_tool", Label: "export_customers"})
 	now := time.Now().UTC()
-	_, _, _, _, _ = st.RecordHit(ctx, store.Event{TokenID: "tok1", Channel: "http", SourceIP: "198.51.100.7", At: now}, false)
-	_, ev, _, _, _ := st.RecordHit(ctx, store.Event{TokenID: "tok2", Channel: "http", SourceIP: "198.51.100.7", Detail: "d", At: now}, false)
+	_, _, _, _, _ = st.RecordHit(ctx, store.Event{TokenID: "tok1", Channel: "http", SourceIP: "198.51.100.7", Session: "s0123456789ab", At: now}, false)
+	_, ev, _, _, _ := st.RecordHit(ctx, store.Event{TokenID: "tok2", Channel: "http", SourceIP: "198.51.100.7", Session: "s0123456789ab", Detail: "d", At: now}, false)
 	tok, _ := v.GetToken(ctx, "tok2")
 	a, err := Build(ctx, st, tok, ev, DefaultCorrelationWindow)
 	if err != nil || a.Unmapped.CorrelatedTripwires != 2 || len(a.FindingInfo.RelatedEvents) != 1 {
