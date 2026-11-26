@@ -214,7 +214,9 @@ type SentinelRecord struct {
 	Channel       string `json:"Channel"`
 	TokenKind     string `json:"TokenKind"`
 	TokenLabel    string `json:"TokenLabel"`
-	OCSF          Alert  `json:"Ocsf"`
+	// Distinct tripwires the source touched within the correlation window (M4c §3).
+	CorrelatedTripwires int   `json:"CorrelatedTripwires"`
+	OCSF                Alert `json:"Ocsf"`
 }
 
 func (s *SentinelSink) Send(ctx context.Context, a Alert) error {
@@ -226,7 +228,7 @@ func (s *SentinelSink) Send(ctx context.Context, a Alert) error {
 		TimeGenerated: time.UnixMilli(a.Time).UTC().Format(time.RFC3339Nano),
 		FindingUID:    a.FindingInfo.UID, Title: a.FindingInfo.Title, Severity: a.Severity,
 		SourceIP: a.SrcEndpoint.IP, Channel: a.Unmapped.Channel,
-		TokenKind: a.Unmapped.Kind, TokenLabel: a.Unmapped.Label, OCSF: a,
+		TokenKind: a.Unmapped.Kind, TokenLabel: a.Unmapped.Label, CorrelatedTripwires: a.Unmapped.CorrelatedTripwires, OCSF: a,
 	}}
 	body, err := json.Marshal(rec)
 	if err != nil {

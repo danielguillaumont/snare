@@ -1,0 +1,32 @@
+id: ceac123d-cd71-4bb0-9029-9edae9e5fa37
+name: Snare - Tripwire touched
+description: |
+  A planted Snare tripwire (decoy tool, honey credential, canary document or link) was used.
+  No legitimate workflow touches one. Treat the source as compromised or misdirected until
+  shown otherwise. Reads the SnareAlerts_CL table written by Snare's sentinel sink.
+severity: High
+requiredDataConnectors: []
+queryFrequency: 5m
+queryPeriod: 6m
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - CredentialAccess
+  - Collection
+relevantTechniques:
+  - T1552
+query: |
+  SnareAlerts_CL
+  | where toint(Ocsf.class_uid) == 2004 and tostring(Ocsf.metadata.product.name) == "Snare"
+  | where toint(Ocsf.severity_id) >= 4
+  | project TimeGenerated, Severity, Title, SrcIp, Channel, TokenKind, TokenLabel,
+      CorrelatedTripwires, Tenant = tostring(Ocsf.metadata.tenant_uid), FindingUid
+entityMappings:
+  - entityType: IP
+    fieldMappings:
+      - identifier: Address
+        columnName: SrcIp
+alertDetailsOverride:
+  alertDisplayNameFormat: "Snare tripwire touched: {{TokenLabel}}"
+version: 1.0.0
+kind: Scheduled

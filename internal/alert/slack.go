@@ -49,11 +49,16 @@ func (s SlackSink) Send(ctx context.Context, a Alert) error {
 	field := func(k, v string) map[string]string {
 		return map[string]string{"type": "mrkdwn", "text": "*" + k + "*\n" + slackEscape(v)}
 	}
+	header, prefix := "Tripwire touched", "Snare tripwire touched: "
+	if u.CorrelatedTripwires >= 2 {
+		header = fmt.Sprintf("CRITICAL: %d tripwires touched by one source", u.CorrelatedTripwires)
+		prefix = "Snare CRITICAL, several tripwires touched: "
+	}
 	msg := map[string]any{
 		// Fallback for notifications; mrkdwn fields carry the same facts.
-		"text": "Snare tripwire touched: " + slackEscape(u.Label),
+		"text": prefix + slackEscape(u.Label),
 		"blocks": []any{
-			map[string]any{"type": "header", "text": map[string]string{"type": "plain_text", "text": "Tripwire touched"}},
+			map[string]any{"type": "header", "text": map[string]string{"type": "plain_text", "text": header}},
 			map[string]any{"type": "section", "fields": []any{
 				field("Tripwire", u.Label),
 				field("Kind", u.Kind),

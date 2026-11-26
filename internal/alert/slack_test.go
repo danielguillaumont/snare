@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/danielguillaumont/snare/internal/egress"
 )
@@ -100,4 +101,31 @@ func mustDecode(t *testing.T, body []byte) []byte {
 	enc.SetEscapeHTML(false)
 	_ = enc.Encode(v)
 	return b.Bytes()
+}
+
+func TestSlackHeaderEscalatesForCorrelatedAlerts(t *testing.T) {
+	for _, c := range []struct {
+		distinct int
+		want     string
+	}{{1, "Tripwire touched"}, {3, "CRITICAL: 3 tripwires touched by one source"}} {
+		var cap captured
+		ts := httptest.NewServer(cap.handler(200))
+		a := sampleAlert()
+		a.Correlate(nil, c.distinct, time.Hour)
+		if err := (SlackSink{URL: ts.URL + "/services/T0/B0/xyz"}).Send(context.Background(), a); err != nil {
+			t.Fatal(err)
+		}
+		ts.Close()
+		var msg struct {
+			Blocks []struct {
+				Text struct {
+					Text string `json:"text"`
+				} `json:"text"`
+			} `json:"blocks"`
+		}
+		_ = json.Unmarshal(cap.body[0], &msg)
+		if msg.Blocks[0].Text.Text != c.want {
+			t.Errorf("distinct=%d: header %q, want %q", c.distinct, msg.Blocks[0].Text.Text, c.want)
+		}
+	}
 }

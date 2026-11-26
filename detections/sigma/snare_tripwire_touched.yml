@@ -1,0 +1,32 @@
+title: Snare Tripwire Touched
+id: ab29f539-d8d1-4fec-b610-d371ebe4a5e8
+status: experimental
+description: |
+  A planted Snare tripwire (decoy tool, honey credential, canary document or link) was used.
+  No legitimate workflow touches one. Matches Snare's OCSF 1.3 Detection Findings.
+references:
+  - https://github.com/danielguillaumont/snare/blob/main/docs/ARCHITECTURE.md
+author: Snare
+date: 2026-11-26
+tags:
+  - attack.credential-access
+  - attack.t1552
+logsource:
+  product: snare
+  category: detection_finding
+detection:
+  selection:
+    class_uid: 2004
+    metadata.product.name: Snare
+    severity_id|gte: 4
+  condition: selection
+fields:
+  - src_endpoint.ip
+  - unmapped.label
+  - unmapped.kind
+  - unmapped.channel
+  - metadata.tenant_uid
+  - finding_info.uid
+falsepositives:
+  - A person testing their own tripwires
+level: high
