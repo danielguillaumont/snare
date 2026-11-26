@@ -22,6 +22,7 @@ import (
 
 	"github.com/danielguillaumont/snare/internal/alert"
 	"github.com/danielguillaumont/snare/internal/egress"
+	"github.com/danielguillaumont/snare/internal/metrics"
 	"github.com/danielguillaumont/snare/internal/seal"
 	"github.com/danielguillaumont/snare/internal/store"
 	"github.com/danielguillaumont/snare/internal/token"
@@ -50,6 +51,11 @@ type API struct {
 	Sealer   *seal.Sealer
 	Egress   egress.Policy
 	Resolver *alert.TenantResolver
+
+	// M4c. Metrics nil means GET /metrics answers 503. Wake, when set, nudges the delivery
+	// outbox after a manual retry.
+	Metrics *metrics.Registry
+	Wake    func()
 }
 
 type MintRequest struct {
@@ -122,6 +128,11 @@ func Routes() []Route {
 		{"DELETE /api/sinks/{id}", AccessAdmin, h((*API).deleteSink)},
 		{"POST /api/sinks/{id}/test", AccessAdmin, h((*API).testSink)},
 		{"GET /api/audit", AccessViewer, h((*API).listAudit)},
+		{"GET /api/deliveries", AccessViewer, h((*API).listDeliveries)},
+		{"POST /api/deliveries/{id}/retry", AccessAdmin, h((*API).retryDelivery)},
+		{"GET /api/operator/deliveries", AccessOperator, h((*API).operatorDeliveries)},
+		{"POST /api/operator/deliveries/{id}/retry", AccessOperator, h((*API).operatorRetryDelivery)},
+		{"GET /metrics", AccessOperator, h((*API).metrics)},
 		{"GET /api/operator/audit", AccessOperator, h((*API).operatorAudit)},
 		{"GET /api/operator/audit/verify", AccessOperator, h((*API).verifyAudit)},
 		{"GET /api/operator/tenants", AccessOperator, h((*API).listTenants)},
@@ -481,6 +492,90 @@ func (a *API) operatorAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, nonNil(es))
+}
+
+func validState(st string) bool {
+	return st == "" || st == store.DeliveryPending || st == store.DeliveryDelivered || st == store.DeliveryDead
+}
+
+func (a *API) listDeliveries(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if !validState(q.Get("state")) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "state must be pending, delivered or dead"})
+		return
+	}
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	ds, err := a.view(r).ListDeliveries(r.Context(), q.Get("state"), limit)
+	if err != nil {
+		a.fail(w, "list deliveries", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, nonNil(ds))
+}
+
+func (a *API) operatorDeliveries(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if !validState(q.Get("state")) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "state must be pending, delivered or dead"})
+		return
+	}
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	ds, err := a.Store.Operator().ListDeliveries(r.Context(), q.Get("state"), limit)
+	if err != nil {
+		a.fail(w, "list deliveries", err)
+		return
+	}
+	// The operator view says whose each delivery is.
+	type opDelivery struct {
+		store.Delivery
+		TenantID string `json:"tenant_id"`
+	}
+	out := make([]opDelivery, len(ds))
+	for i, d := range ds {
+		out[i] = opDelivery{d, d.TenantID}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (a *API) doRetry(w http.ResponseWriter, r *http.Request, retry func(context.Context, int64) error) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	err = retry(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found, or not dead"})
+		return
+	}
+	if err != nil {
+		a.fail(w, "retry delivery", err)
+		return
+	}
+	if a.Wake != nil {
+		a.Wake()
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *API) retryDelivery(w http.ResponseWriter, r *http.Request) {
+	a.doRetry(w, r, a.view(r).RetryDelivery)
+}
+
+func (a *API) operatorRetryDelivery(w http.ResponseWriter, r *http.Request) {
+	a.doRetry(w, r, a.Store.Operator().RetryDelivery)
+}
+
+// metrics serves the Prometheus text format. It sits behind the operator key: counts reveal
+// little, but nothing on the admin listener is unauthenticated except /healthz.
+func (a *API) metrics(w http.ResponseWriter, _ *http.Request) {
+	if a.Metrics == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "metrics not enabled"})
+		return
+	}
+	w.Header().Set("Content-Type", metrics.ContentType)
+	w.Header().Set("Cache-Control", "no-store")
+	a.Metrics.Write(w)
 }
 
 // AuditVerification is the answer of GET /api/operator/audit/verify.

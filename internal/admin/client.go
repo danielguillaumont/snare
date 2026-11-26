@@ -111,6 +111,27 @@ func (c *Client) Audit(tenantID string, limit int, operator bool) ([]store.Audit
 	return es, err
 }
 
+// Deliveries lists alert deliveries, newest first: the caller's tenant, or every tenant for
+// the operator. state "" means any.
+func (c *Client) Deliveries(state string, limit int, operator bool) ([]store.Delivery, error) {
+	var ds []store.Delivery
+	base := "/api/deliveries"
+	if operator {
+		base = "/api/operator/deliveries"
+	}
+	err := c.do("GET", fmt.Sprintf("%s?state=%s&limit=%d", base, url.QueryEscape(state), limit), nil, &ds)
+	return ds, err
+}
+
+// RetryDelivery requeues a dead delivery.
+func (c *Client) RetryDelivery(id int64, operator bool) error {
+	base := "/api/deliveries/"
+	if operator {
+		base = "/api/operator/deliveries/"
+	}
+	return c.do("POST", fmt.Sprintf("%s%d/retry", base, id), nil, nil)
+}
+
 func (c *Client) VerifyAudit() (AuditVerification, error) {
 	var v AuditVerification
 	err := c.do("GET", "/api/operator/audit/verify", nil, &v)
