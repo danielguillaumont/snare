@@ -19,7 +19,24 @@ the evidence is linked here.
 | **M4d** ✅ | Operator view, data at rest, capacity | Dashboard severity and delivery health, token labels sealed at rest, measured single-node capacity ([M4d-operations.md](M4d-operations.md)) | Critical touches and undelivered alerts visible per tenant; no label plaintext in the database file; a reproducible capacity table. **Done 2026-11-26.** Benchmarks found two ways an unauthenticated sender could degrade the callback; both were fixed and re-measured ([results-bench.md](results-bench.md)). No API spend. |
 | **M4e** ✅ | Tripwire lifecycle, triage, first run | Disable and re-enable a tripwire (audited, touches still recorded), triage states with OCSF status mapping, a cross-platform `snare demo` ([M4e-lifecycle.md](M4e-lifecycle.md)) | A muted touch never alerts; triage is visible in export and dashboard; the demo runs from one command on any OS. **Done 2026-11-26.** Evidence in [M4e results](M4e-lifecycle.md#results). No API spend. |
 | **M4f** ✅ | Distribution, retention, integration | Signed release binaries for six targets, opt-in event retention that never deletes untriaged touches, a guide to wiring Snare into MCP clients and SIEMs ([M4f-distribution.md](M4f-distribution.md)) | A team installs without Go, can bound database growth, and can check a tripwire is live without paging anyone. **Done 2026-11-26.** Evidence in [M4f results](M4f-distribution.md#results). No API spend. |
-| M5 | Design partners | 3–5 teams running Snare on real agents | Written feedback + at least one recurring user |
+| M5 ⏸ | Design partners | 3–5 teams running Snare on real agents | Written feedback + at least one recurring user. **Parked until Daniel picks it up.** |
+
+### Next: Snare in depth (M6–M14)
+
+Proposed 2026-11-26. The reasoning, the layer model and the risks are in [DEPTH.md](DEPTH.md).
+Each row gets its own design doc before code.
+
+| # | Milestone | Scope | Exit criterion |
+|---|---|---|---|
+| M6 | Snare Gateway | MCP proxy in front of real servers: decoys injected into real tool lists, session ids on every touch, honey values detected in tool arguments | Forwards every message unchanged, tested end to end against a real MCP server; forwarding overhead measured and published |
+| M7 | Layers, stages, incidents | Every tripwire has a layer (ingest, context, tool, data, egress, use) and a kill-chain stage; touches grouped into incidents by session; severity = deepest stage | Incidents in OCSF and as a dashboard timeline; `advise` reports layer coverage |
+| M8 | Containment (opt-in) | Gateway freezes a session's tool calls after a touch; audited release | Frozen within one call; forwarding unaffected when Snare's side is down. **Needs a decision on the spec non-goal** ([DEPTH.md](DEPTH.md#decision-needed)) |
+| M9 | Provenance and attribution | Per-session ledger of untrusted inputs (hashes, not content); per-source markers | A poisoned document is named in the alert as the last untrusted input before the touch |
+| M10 | Context-layer tripwires | Prompt canaries and memory / vector-store canaries | A leaked system prompt or recalled memory canary is a touch |
+| M11 | Heartbeat | Scheduled synthetic touches per channel, marked as tests | "Verified N min ago" per channel; a stale metric when a path breaks |
+| M12 | Adaptive deception | Decoys and honey layouts generated from the agent's own tools and repo | A scripted attacker that reads Snare's source is re-run and published ($0) |
+| M13 | Proof: Snare in depth | Pre-registered rerun of M3a's hunt objective with all layers; benign and utility re-check | Published against the 42% baseline. **≤ $8 under `--max-usd`, asked before running** |
+| M14 | First run, end to end | `snare init` (find configs, plan layers, wrap servers, liveness check, coverage score); `snare demo --attack` incident replay | One command from install to a verified, layered deployment |
 
 ## M0 detail
 
