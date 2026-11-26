@@ -18,6 +18,13 @@ func FuzzFind(f *testing.F) {
 	tok, id, _ := s.Mint()
 	hexSigner, _ := s.WithFormat("", Hex)
 	hexTok, hexID, _ := hexSigner.Mint()
+	// After rotation: a new current key and three previous ones, the original last (the
+	// most MACs per candidate). Old tokens must still be found, under the same cap.
+	next, _ := NewSigner(bytes.Repeat([]byte{4}, 32))
+	rotated, err := next.WithPrevious(bytes.Repeat([]byte{5}, 32), bytes.Repeat([]byte{6}, 32), bytes.Repeat([]byte{3}, 32))
+	if err != nil {
+		f.Fatal(err)
+	}
 
 	for _, seed := range []struct{ pre, suf string }{
 		{"", ""},
@@ -38,12 +45,13 @@ func FuzzFind(f *testing.F) {
 			sg     *Signer
 			tok    string
 			wantID string
-		}{{s, tok, id}, {hexSigner, hexTok, hexID}} {
+		}{{s, tok, id}, {hexSigner, hexTok, hexID}, {rotated, tok, id}} {
 			text := pre + c.tok + suf
 			if upper {
 				text = strings.ToUpper(text)
 			}
-			got, ok, attempts := c.sg.find(text)
+			gm, ok, attempts := c.sg.find(text)
+			got := gm.ID
 			if attempts > maxAttempts {
 				t.Fatalf("%d MAC checks, cap is %d", attempts, maxAttempts)
 			}

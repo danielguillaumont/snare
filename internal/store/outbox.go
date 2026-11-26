@@ -100,8 +100,8 @@ func (s *Store) RecordHit(ctx context.Context, e Event, alert bool) (tok Token, 
 	}
 	e.TenantID = tok.TenantID
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO events (tenant_id, token_id, channel, source_ip, detail, at) VALUES (?, ?, ?, ?, ?, ?)`,
-		e.TenantID, e.TokenID, e.Channel, e.SourceIP, e.Detail, e.At.UnixMilli())
+		`INSERT INTO events (tenant_id, token_id, channel, source_ip, detail, at, prev_key) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		e.TenantID, e.TokenID, e.Channel, e.SourceIP, e.Detail, e.At.UnixMilli(), e.PreviousKey)
 	if err != nil {
 		return Token{}, Event{}, false, false, err
 	}

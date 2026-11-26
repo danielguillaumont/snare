@@ -17,6 +17,7 @@ import (
 	"github.com/danielguillaumont/snare/internal/egress"
 	"github.com/danielguillaumont/snare/internal/seal"
 	"github.com/danielguillaumont/snare/internal/store"
+	"github.com/danielguillaumont/snare/internal/token"
 )
 
 type captured struct {
@@ -213,7 +214,7 @@ func TestTenantRoutingAndSealBinding(t *testing.T) {
 	ob := fastOutbox(st, op1)
 	ob.Resolver = res
 	p := &Pipeline{Store: st, Outbox: ob, Dedup: NewDedup(time.Minute), Log: quiet}
-	if err := p.Hit(ctx, "tok_b", "http", "203.0.113.1", "GET"); err != nil {
+	if err := p.Hit(ctx, token.Match{ID: "tok_b"}, "http", "203.0.113.1", "GET"); err != nil {
 		t.Fatal(err)
 	}
 	drain(t, ob)

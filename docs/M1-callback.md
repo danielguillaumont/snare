@@ -88,7 +88,8 @@ internal/admin/       admin HTTP API
 
 | Variable | Meaning |
 |---|---|
-| `SNARE_KEY` | Server HMAC key, ≥ 32 bytes, hex. Required. |
+| `SNARE_KEY` | Server HMAC key, ≥ 32 bytes, hex. Required. Signs new tokens. |
+| `SNARE_KEY_PREVIOUS` | Up to 3 retired `SNARE_KEY` values, comma-separated hex. Tokens minted under them still verify, and their alerts carry `unmapped.verified_by_previous_key` (M4c). |
 | `SNARE_ADMIN_KEY` | Bearer key for the admin API. Required. |
 | `SNARE_HTTP_ADDR` / `SNARE_DNS_ADDR` / `SNARE_ADMIN_ADDR` | Listen addresses |
 | `SNARE_ZONE` | DNS zone Snare is authoritative for, e.g. `cb.example.com.` |

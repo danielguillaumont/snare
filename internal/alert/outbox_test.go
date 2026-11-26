@@ -12,6 +12,7 @@ import (
 
 	"github.com/danielguillaumont/snare/internal/metrics"
 	"github.com/danielguillaumont/snare/internal/store"
+	"github.com/danielguillaumont/snare/internal/token"
 )
 
 // fastOutbox is an outbox with test-speed retries. Sink i gets ref "op:<name><i>".
@@ -54,11 +55,11 @@ func TestPipelineStoresEveryEventButDedupsAlerts(t *testing.T) {
 	p := &Pipeline{Store: st, Outbox: ob, Dedup: NewDedup(time.Minute), Log: quiet, Metrics: m}
 
 	for i := 0; i < 5; i++ { // resolver retry storm
-		if err := p.Hit(ctx, "tid", "dns", "198.51.100.4", "tid.cb.example. A"); err != nil {
+		if err := p.Hit(ctx, token.Match{ID: "tid"}, "dns", "198.51.100.4", "tid.cb.example. A"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	_ = p.Hit(ctx, "tid", "http", "198.51.100.4", "GET /t/x")
+	_ = p.Hit(ctx, token.Match{ID: "tid"}, "http", "198.51.100.4", "GET /t/x")
 	drain(t, ob)
 
 	evs, _ := st.Tenant(store.DefaultTenant).ListEvents(ctx, "tid", 100)
@@ -84,7 +85,7 @@ func TestUnregisteredTokenStillAlerts(t *testing.T) {
 	sink := &memSink{}
 	ob := fastOutbox(st, sink)
 	p := &Pipeline{Store: st, Outbox: ob, Dedup: NewDedup(time.Minute), Log: quiet}
-	_ = p.Hit(context.Background(), "ghost", "http", "192.0.2.1", "")
+	_ = p.Hit(context.Background(), token.Match{ID: "ghost"}, "http", "192.0.2.1", "")
 	drain(t, ob)
 	if got := sink.alerts(); len(got) != 1 || got[0].Unmapped.Kind != "unknown" {
 		t.Fatalf("got %+v", got)
@@ -98,7 +99,7 @@ func TestOutboxRetriesUntilSinkRecovers(t *testing.T) {
 	sink := &memSink{fail: 7}
 	ob := fastOutbox(st, sink)
 	p := &Pipeline{Store: st, Outbox: ob, Dedup: NewDedup(time.Minute), Log: quiet}
-	_ = p.Hit(context.Background(), "x", "http", "192.0.2.1", "")
+	_ = p.Hit(context.Background(), token.Match{ID: "x"}, "http", "192.0.2.1", "")
 	drain(t, ob)
 	if len(sink.alerts()) != 1 {
 		t.Fatalf("not delivered after recovery (%d attempts)", atomic.LoadInt32(&sink.n))
@@ -118,7 +119,7 @@ func TestOutboxDeadAfterMaxAttemptsThenManualRetry(t *testing.T) {
 	reg := metrics.New()
 	ob.Metrics = NewMetrics(reg, st)
 	p := &Pipeline{Store: st, Outbox: ob, Dedup: NewDedup(time.Minute), Log: quiet}
-	_ = p.Hit(ctx, "x", "http", "192.0.2.1", "")
+	_ = p.Hit(ctx, token.Match{ID: "x"}, "http", "192.0.2.1", "")
 	drain(t, ob)
 	dead, _ := st.Operator().ListDeliveries(ctx, store.DeliveryDead, 10)
 	if len(dead) != 1 || dead[0].Attempts != 3 || dead[0].LastError != "transient" || len(sink.alerts()) != 0 {
@@ -154,7 +155,7 @@ func TestOutboxSurvivesRestart(t *testing.T) {
 	ob := fastOutbox(st, down)
 	ob.Backoff, ob.MaxBackoff = time.Hour, time.Hour // the first failure pushes the retry far out
 	p := &Pipeline{Store: st, Outbox: ob, Dedup: NewDedup(time.Minute), Log: quiet}
-	_ = p.Hit(ctx, "t1", "http", "192.0.2.1", "GET")
+	_ = p.Hit(ctx, token.Match{ID: "t1"}, "http", "192.0.2.1", "GET")
 	drain(t, ob)
 	ob.Close()
 	st.Close()
@@ -197,7 +198,7 @@ func TestDeadSinkDoesNotDelayOthers(t *testing.T) {
 		Operator: []Target{{Ref: "op:hung", Sink: hung}, {Ref: "op:fast", Sink: fast}}}
 	p := &Pipeline{Store: st, Outbox: ob, Dedup: NewDedup(time.Minute), Log: quiet}
 	for i := 0; i < 20; i++ {
-		_ = p.Hit(ctx, fmt.Sprintf("tok%d", i), "http", "192.0.2.1", "")
+		_ = p.Hit(ctx, token.Match{ID: fmt.Sprintf("tok%d", i)}, "http", "192.0.2.1", "")
 	}
 	if _, err := ob.pass(ctx); err != nil { // fan out and start what fits
 		t.Fatal(err)
@@ -234,7 +235,7 @@ func TestHitNeverBlocksOnDelivery(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		for i := 0; i < 50; i++ {
-			_ = p.Hit(context.Background(), fmt.Sprintf("t%d", i), "http", "192.0.2.1", "")
+			_ = p.Hit(context.Background(), token.Match{ID: fmt.Sprintf("t%d", i)}, "http", "192.0.2.1", "")
 		}
 		close(done)
 	}()
@@ -253,7 +254,7 @@ func TestRemovedSinkGoesDeadNotRetried(t *testing.T) {
 	st := memStore(t)
 	ob := fastOutbox(st, &memSink{})
 	p := &Pipeline{Store: st, Outbox: ob, Dedup: NewDedup(time.Minute), Log: quiet}
-	_ = p.Hit(ctx, "y", "http", "192.0.2.1", "")
+	_ = p.Hit(ctx, token.Match{ID: "y"}, "http", "192.0.2.1", "")
 	if err := st.Outbox().Expand(ctx, mustMarker(t, st), []string{"op:gone"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
