@@ -1,0 +1,12 @@
+goos: windows
+goarch: amd64
+pkg: github.com/danielguillaumont/snare/internal/token
+cpu: 11th Gen Intel(R) Core(TM) i7-11370H @ 3.30GHz
+BenchmarkMatcherWorstCase-8   	     850	   1638722 ns/op	  39.99 MB/s	      96 B/op	       2 allocs/op
+BenchmarkMatcherWorstCase-8   	     715	   1939908 ns/op	  33.78 MB/s	      96 B/op	       2 allocs/op
+BenchmarkMatcherWorstCase-8   	     609	   1767405 ns/op	  37.08 MB/s	      96 B/op	       2 allocs/op
+BenchmarkMatcherWorstCase-8   	     700	   1827584 ns/op	  35.86 MB/s	      96 B/op	       2 allocs/op
+BenchmarkMatcherWorstCase-8   	     742	   1600213 ns/op	  40.95 MB/s	      96 B/op	       2 allocs/op
+BenchmarkMatcherWorstCase-8   	     700	   1546837 ns/op	  42.37 MB/s	      96 B/op	       2 allocs/op
+PASS
+ok  	github.com/danielguillaumont/snare/internal/token	9.455s

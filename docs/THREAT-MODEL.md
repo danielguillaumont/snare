@@ -67,6 +67,23 @@ prevention (input isolation, tool permissions), not in place of it.
 | **Vulnerable or tampered dependencies and images** | govulncheck and CodeQL in CI, Dependabot; release images carry an SBOM and provenance and are cosign-signed. govulncheck found one reachable stdlib issue (GO-2026-6859), fixed by moving to Go 1.27.4. | CI `govulncheck`, `codeql` |
 | **Instance compromise via the host** | Distroless non-root container, read-only root filesystem, all capabilities dropped. No SSH (Session Manager only). Secrets live in SSM, never in Terraform state. | CI `image` job checks the user; IaC review |
 
+### The gateway (M6)
+
+The gateway runs on the agent's machine, in the path of every tool call
+([M6-gateway.md](M6-gateway.md)).
+
+| Threat | Control | Tested by |
+|---|---|---|
+| A gateway bug breaks the agent's real tools | Everything it doesn't own is relayed byte for byte; callbacks are asynchronous; inspection failures are recovered and the call still goes through | Relay tests across message kinds; `FuzzRelay` (about 313,000 inputs locally, and in the CI fuzz matrix) |
+| A hijacked agent reads `gw.json` to learn which values are traps | Salted SHA-256 fingerprints only; no honey value and no signing key in the file | `TestConfigHoldsNoHoneyValueOrKey`, gateway end-to-end test |
+| The gateway leaks tool arguments | Arguments are scanned in memory only. A callback carries the matched honey token (already in the agent's hands), the layer, the tool name and the session id | Callback-contents assertions in the gateway tests |
+| Hostile arguments make the scan slow | At most 4,096 windows per call: about 1.7 ms in the worst case ([results](M6-gateway.md#results)) | `TestFingerprintScanIsBounded`, `BenchmarkMatcherWorstCase` |
+| Forged callback context (`layer`, `session`) | Three allowlisted keys with a strict charset; a valid token is still required to record anything | `TestHTTPCallbackContextIsAllowlisted` |
+
+Decoy tokens are in `gw.json`, as they are in the `decoy-mcp` config. An agent that can read
+the file can tell which tools are decoys. Keep it outside the agent's workspace; the planting
+command writes it with mode 0600.
+
 ### Residual risk (known, accepted or not yet addressed)
 
 - **A tenant admin key can mute tripwires.** Disabling a tripwire (M4e) is exactly what

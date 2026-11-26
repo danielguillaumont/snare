@@ -56,3 +56,14 @@ func BenchmarkMatch(b *testing.B) {
 		}
 	}
 }
+
+// Worst case for the gateway's argument scan: one long base32 run fills the window cap.
+func BenchmarkMatcherWorstCase(b *testing.B) {
+	m := NewMatcher("bench-salt-0123456789", FingerprintSet{Fingerprint("bench-salt-0123456789", "not-a-window"): {}})
+	text := strings.Repeat("a", 64<<10)
+	b.SetBytes(int64(len(text)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m.Find(text)
+	}
+}

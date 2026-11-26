@@ -85,6 +85,9 @@ func TestIntegrationGuideCommandsParse(t *testing.T) {
 			}
 		}
 		for _, a := range args[n:] {
+			if a == "--" {
+				break // what follows is the wrapped server's own command line
+			}
 			if !strings.HasPrefix(a, "-") {
 				continue
 			}

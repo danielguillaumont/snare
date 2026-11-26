@@ -15,6 +15,8 @@
 //	snare plant repo|corpus <dir>         plant honey credentials / canary docs
 //	snare plant mcp -config F             write a decoy MCP server config
 //	snare decoy-mcp -config F             run the decoy MCP server on stdio
+//	snare plant gateway -config F         write a gateway config (decoys + fingerprints)
+//	snare gateway -config F -- CMD...     run the gateway in front of a real MCP server
 //	snare decoys [-all]                   print decoy names as JSON (for the eval harness)
 package main
 
@@ -24,6 +26,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -78,6 +81,8 @@ func main() {
 		err = plantCmd(os.Args[2:])
 	case "decoy-mcp":
 		err = decoyMCP(os.Args[2:])
+	case "gateway":
+		err = gatewayCmd(os.Args[2:])
 	case "decoys":
 		err = decoysCmd(os.Args[2:])
 	default:
@@ -109,6 +114,9 @@ func usage() {
   snare plant corpus [-dry-run] [-manifest F] [-with-instruction] <dir>
   snare plant mcp    [-dry-run] [-manifest F] -config F [-name N] [-exclude a,b]
                      [-style snake|camel|kebab] [-seed N] [-names F] [-catalog-names]
+  snare plant gateway [-dry-run] [-manifest F] -config F [-style auto|snake|camel|kebab|catalog]
+                     [-seed N] [-names F] [-exclude a,b] | -refresh -config F
+  snare gateway -config F [-v] -- <real server command> [args]
   snare decoy-mcp -config F
   snare decoys [-seed N -style S -names F [-screen] | -all | -table]
 `)
@@ -219,7 +227,10 @@ func plantCmd(args []string) error {
 	seed := fs.String("seed", "", "mcp: seed for per-install decoy names (default: random)")
 	namesFile := fs.String("names", "", "mcp: JSON file {catalog_name: {name, description}} of your own decoy names")
 	catalogNames := fs.Bool("catalog-names", false, "mcp: use the public catalog names (easy to fingerprint; not recommended)")
+	refresh := fs.Bool("refresh", false, "gateway: re-fetch fingerprints for an existing -config")
 	_ = fs.Parse(args[1:])
+	styleSet := false
+	fs.Visit(func(f *flag.Flag) { styleSet = styleSet || f.Name == "style" })
 	opts := plant.Options{DryRun: *dry}
 	c := client()
 
@@ -260,8 +271,38 @@ func plantCmd(args []string) error {
 			fmt.Println("Add this to your MCP client config (e.g. .mcp.json or claude_desktop_config.json):")
 			fmt.Println(snippet)
 		}
+	case "gateway":
+		if *config == "" {
+			return errors.New("plant gateway needs -config")
+		}
+		if *refresh {
+			n, err := plant.RefreshGateway(c, *config)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%s: fingerprints refreshed for %d tripwires\n", *config, n)
+			return nil
+		}
+		ex := strings.FieldsFunc(*exclude, func(r rune) bool { return r == ',' || r == ' ' })
+		gwo := plant.GatewayOptions{Options: opts, ConfigPath: *config, Exclude: ex, Style: "auto"}
+		if styleSet {
+			gwo.Style = *style
+		}
+		if *catalogNames {
+			gwo.Style = "catalog"
+		}
+		if gwo.Seed, gwo.Overrides, err = nameOptions(*seed, *namesFile); err != nil {
+			return err
+		}
+		gwo.Command, _ = os.Executable()
+		var snippet string
+		entries, snippet, err = plant.Gateway(c, gwo)
+		if err == nil {
+			fmt.Println("Wrap each real MCP server in your client config like this:")
+			fmt.Println(snippet)
+		}
 	default:
-		return fmt.Errorf("unknown plant target %q (want repo, corpus or mcp)", target)
+		return fmt.Errorf("unknown plant target %q (want repo, corpus, mcp or gateway)", target)
 	}
 	if err != nil {
 		return err

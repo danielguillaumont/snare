@@ -56,6 +56,40 @@ so the decoys don't stand out. Each install gets its own random names unless you
 Keep the manifest (`snare-planted.json`) out of anything the agent can read. It lists every
 decoy.
 
+### Or: decoys inside your real servers (gateway)
+
+`snare gateway` wraps a real MCP server instead of adding a separate one. The agent sees one
+server, whose tool list has the decoys in it, named in that server's own style. The gateway
+also watches every real tool call for a honey value being sent out, for example a planted
+key pasted into an email. Everything else passes through unchanged.
+
+```sh
+snare plant gateway -config gw.json -exclude list_api_keys
+```
+
+Then change the server's client entry from running the server directly to running it
+behind the gateway. For a server started with `npx some-mcp-server --repo .`:
+
+```json
+"github": { "command": "snare", "args": ["gateway", "-config", "/home/you/gw.json", "--", "npx", "some-mcp-server", "--repo", "."] }
+```
+
+Each touch it reports carries:
+
+- `layer=tool` (a decoy was called) or `layer=egress` (a honey value left through a real
+  tool);
+- the tool's name;
+- a session id shared by every touch from one client session.
+
+Arguments are never logged or sent. The gateway recognizes honey values from salted
+fingerprints, so `gw.json` holds no honey value and no key. It does hold decoy tokens, so
+keep it outside the agent's workspace. After planting new tripwires, refresh the
+fingerprints:
+
+```sh
+snare plant gateway -refresh -config gw.json
+```
+
 ## 2. Confirm a tripwire is live without paging anyone
 
 You want to know that a touch reaches Snare and your alerting before an attacker tests it

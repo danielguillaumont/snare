@@ -208,3 +208,25 @@ func TestDNSRefusesOutOfZone(t *testing.T) {
 }
 
 var _ http.Handler = (*HTTP)(nil)
+
+func TestHTTPCallbackContextIsAllowlisted(t *testing.T) {
+	s := newSigner(t)
+	r := &rec{}
+	h := &HTTP{Signer: s, Recorder: r, Log: quiet}
+	tok, _, _ := s.Mint()
+	q := "?layer=egress&tool=send_email&session=s1a2b3&secret=hunter2&tool=dup" +
+		"&x=" + strings.Repeat("y", 10)
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/v1/"+tok+q, nil))
+	bad := "?layer=%3Cscript%3E&tool=" + strings.Repeat("a", 65) + "&session=ok_1.2-3"
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/v1/"+tok+bad, nil))
+	got := r.all()
+	if len(got) != 2 {
+		t.Fatalf("hits: %+v", got)
+	}
+	if !strings.HasSuffix(got[0].detail, " layer=egress tool=send_email session=s1a2b3") || strings.Contains(got[0].detail, "hunter2") {
+		t.Errorf("detail: %q", got[0].detail)
+	}
+	if !strings.HasSuffix(got[1].detail, " session=ok_1.2-3") || strings.Contains(got[1].detail, "layer=") || strings.Contains(got[1].detail, "tool=") {
+		t.Errorf("bad values must be dropped: %q", got[1].detail)
+	}
+}

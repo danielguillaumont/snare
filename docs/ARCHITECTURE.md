@@ -10,10 +10,13 @@ flowchart LR
   subgraph Agent environment
     A[AI agent] -->|reads| U[Untrusted input:<br/>tickets, email, pages, RAG docs]
     A -->|lists / calls| M[Decoy MCP server<br/>snare decoy-mcp]
+    A -->|every tool call| G[Snare gateway<br/>snare gateway]
+    G -->|relayed unchanged| R[Real MCP server]
     A -->|reads| H[Honey credentials<br/>and canary docs<br/>snare plant]
   end
 
   M -->|decoy call| CB
+  G -->|decoy call, or honey value<br/>in a real call's arguments| CB
   H -.->|leaked key used,<br/>link followed| CB
   H -.->|hostname resolved| DNS
 
@@ -25,7 +28,7 @@ flowchart LR
     P -->|event + outbox row,<br/>one transaction| S[(SQLite:<br/>tenants, tokens, events,<br/>sealed sinks, outbox)]
     S --> D[Outbox worker<br/>per-destination retries]
     API[Admin API<br/>operator + tenant keys] --> S
-    UI[Read-only dashboard] --> S
+    UI[Dashboard] --> S
   end
 
   D -->|OCSF 2004| W[Signed webhook]
@@ -40,6 +43,10 @@ flowchart LR
 2. **Plant.**
    - `snare plant repo|corpus` writes honey credentials and canary documents.
    - `snare plant mcp` adds a decoy MCP server to the agent's config.
+   - `snare plant gateway` (M6) puts decoys inside a real server's tool list instead. The
+     gateway wraps the server, relays its traffic unchanged, and reports honey values it
+     sees in real tool arguments. It recognizes them from salted fingerprints, not from
+     the tokens ([M6-gateway.md](M6-gateway.md)).
    - Decoy names can be generated per install and screened against hard benign tasks first
      (M3a-fix2, M3b).
 3. **Touch.** A hijacked agent calls a decoy tool, uses a honey key against the honey base
@@ -79,6 +86,7 @@ flowchart LR
 | `internal/admin` | Admin API (route table with access levels), Go client |
 | `internal/dashboard` | Server-rendered dashboard, signed sessions |
 | `internal/decoys`, `internal/mcp`, `internal/plant` | Decoy catalogue and name generation, decoy MCP server, planting |
+| `internal/gateway` | MCP proxy: decoys inside real servers, egress fingerprints, session context (M6) |
 | `internal/server` | Wires everything into one process from `SNARE_*` env |
 | `experiments/killtest` | Python harness: kill test, detection evals, decoy screen, AgentDojo runs |
 
