@@ -1,5 +1,6 @@
 // Command snare runs the Snare callback server and plants tripwires.
 //
+//	snare version                         print the version
 //	snare keygen                          print random keys for SNARE_KEY / SNARE_ADMIN_KEY / SNARE_SEAL_KEY
 //	snare serve                           run listeners (config from SNARE_* env vars)
 //	snare mint -kind K -label L           mint a token through the admin API
@@ -28,6 +29,7 @@ import (
 	"time"
 
 	"github.com/danielguillaumont/snare/internal/admin"
+	"github.com/danielguillaumont/snare/internal/alert"
 	"github.com/danielguillaumont/snare/internal/decoys"
 	"github.com/danielguillaumont/snare/internal/mcp"
 	"github.com/danielguillaumont/snare/internal/plant"
@@ -41,6 +43,8 @@ func main() {
 	}
 	var err error
 	switch os.Args[1] {
+	case "version", "-version", "--version":
+		fmt.Println("snare", alert.ProductVersion)
 	case "keygen":
 		err = keygen()
 	case "serve":
@@ -69,6 +73,7 @@ func main() {
 
 func usage() {
 	fmt.Fprint(os.Stderr, `usage:
+  snare version
   snare keygen
   snare serve
   snare mint -kind K -label L [-memo M]
