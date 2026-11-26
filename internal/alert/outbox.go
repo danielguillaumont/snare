@@ -76,6 +76,7 @@ type Outbox struct {
 	Timeout     time.Duration // per attempt, default 10s
 	Poll        time.Duration // idle rescan, default 1s
 	Retention   time.Duration // delivered rows, default 7 days
+	Correlation time.Duration // window for multi-tripwire correlation, default 1h
 	NoJitter    bool          // tests
 	Now         func() time.Time
 
@@ -115,6 +116,7 @@ func (o *Outbox) init() {
 		def(&o.Timeout, 10*time.Second)
 		def(&o.Poll, time.Second)
 		def(&o.Retention, 7*24*time.Hour)
+		def(&o.Correlation, DefaultCorrelationWindow)
 		if o.Now == nil {
 			o.Now = time.Now
 		}
@@ -333,7 +335,11 @@ func (o *Outbox) attempt(d store.Delivery) {
 		// deleted. No tenant owns it, so it reaches operator sinks only.
 		tok = store.Token{ID: ev.TokenID, Kind: "unknown", Label: "(unregistered token)"}
 	}
-	a := New(tok, ev)
+	a, err := Build(ctx, o.Store, tok, ev, o.Correlation)
+	if err != nil {
+		fail(t.Sink.Name(), err, false)
+		return
+	}
 	actx, cancel := context.WithTimeout(ctx, o.Timeout)
 	err = t.Sink.Send(actx, a)
 	cancel()
@@ -347,6 +353,22 @@ func (o *Outbox) attempt(d store.Delivery) {
 	if err := o.ob.MarkDelivered(ctx, d.ID, n, now); err != nil {
 		o.Log.Error("outbox mark delivered", "delivery", d.ID, "err", err)
 	}
+}
+
+// DefaultCorrelationWindow is how far back Build looks for other tripwires touched by the
+// same source.
+const DefaultCorrelationWindow = time.Hour
+
+// Build makes the alert for one stored event, correlated with the source's earlier touches.
+// Live delivery and export both use it, so a backfilled finding matches the one delivered.
+func Build(ctx context.Context, st *store.Store, tok store.Token, ev store.Event, window time.Duration) (Alert, error) {
+	a := New(tok, ev)
+	rel, distinct, err := st.Outbox().Related(ctx, ev, window, 10)
+	if err != nil {
+		return Alert{}, fmt.Errorf("correlate: %w", err)
+	}
+	a.Correlate(rel, distinct, window)
+	return a, nil
 }
 
 // delay is the wait after failed attempt n: Backoff·2^(n-1), capped, with ±20% jitter.

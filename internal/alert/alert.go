@@ -44,8 +44,18 @@ type FindingInfo struct {
 	Title         string   `json:"title"`
 	Desc          string   `json:"desc,omitempty"`
 	Types         []string `json:"types"`
-	FirstSeenTime int64    `json:"first_seen_time"`
-	Analytic      Analytic `json:"analytic"`
+	FirstSeenTime int64          `json:"first_seen_time"`
+	Analytic      Analytic       `json:"analytic"`
+	RelatedEvents []RelatedEvent `json:"related_events,omitempty"`
+}
+
+// RelatedEvent is OCSF's related_event object: another finding this one is linked to.
+type RelatedEvent struct {
+	UID           string `json:"uid"`
+	TypeUID       int    `json:"type_uid"`
+	TypeName      string `json:"type_name"`
+	Title         string `json:"title"`
+	FirstSeenTime int64  `json:"first_seen_time"`
 }
 
 // Analytic names the detection logic: a deterministic rule ("this token was used").
@@ -87,6 +97,10 @@ type Unmapped struct {
 	Channel string `json:"channel"`
 	Detail  string `json:"detail"`
 	EventID int64  `json:"event_id"`
+	// Distinct tripwires this source touched in this tenant within CorrelationWindow,
+	// including this one (docs/M4c-reliability.md §3). 1 means an isolated touch.
+	CorrelatedTripwires int    `json:"correlated_tripwires"`
+	CorrelationWindow   string `json:"correlation_window,omitempty"`
 }
 
 // ProductVersion is reported in metadata.product.version.
@@ -95,7 +109,7 @@ var ProductVersion = "0.5.0"
 // New builds an alert for one event on one token.
 func New(tok store.Token, ev store.Event) Alert {
 	ms := ev.At.UnixMilli()
-	uid := fmt.Sprintf("snare-%s-%d", tok.ID, ev.ID)
+	uid := findingUID(tok.ID, ev.ID)
 	return Alert{
 		ActivityID: 1, ActivityName: "Create",
 		CategoryUID: 2, CategoryName: "Findings",
@@ -128,7 +142,34 @@ func New(tok store.Token, ev store.Event) Alert {
 		Unmapped: Unmapped{
 			TokenID: tok.ID, Kind: tok.Kind, Label: tok.Label, Memo: tok.Memo,
 			Channel: ev.Channel, Detail: ev.Detail, EventID: ev.ID,
+			CorrelatedTripwires: 1,
 		},
+	}
+}
+
+func findingUID(tokenID string, eventID int64) string { return fmt.Sprintf("snare-%s-%d", tokenID, eventID) }
+
+// Correlate records the other tripwires the same source touched shortly before. Two or more
+// distinct tripwires raise the alert to Critical: one touch can be an accident, a source
+// working through several traps is not. It never lowers severity or suppresses an alert.
+func (a *Alert) Correlate(related []store.RelatedTouch, distinct int, window time.Duration) {
+	a.Unmapped.CorrelationWindow = window.String()
+	if distinct < 1 {
+		distinct = 1
+	}
+	a.Unmapped.CorrelatedTripwires = distinct
+	a.FindingInfo.RelatedEvents = nil
+	for _, r := range related {
+		a.FindingInfo.RelatedEvents = append(a.FindingInfo.RelatedEvents, RelatedEvent{
+			UID: findingUID(r.TokenID, r.EventID), TypeUID: 200401, TypeName: "Detection Finding: Create",
+			Title: "Tripwire touched: " + r.Label, FirstSeenTime: r.At.UnixMilli(),
+		})
+	}
+	if distinct >= 2 {
+		a.SeverityID, a.Severity = 5, "Critical"
+		a.Message = fmt.Sprintf("%s (source touched %d tripwires within %s)", a.Message, distinct, window)
+		a.FindingInfo.Desc += fmt.Sprintf(" The same source touched %d different tripwires within %s, "+
+			"which is how an agent working through planted traps looks.", distinct, window)
 	}
 }
 

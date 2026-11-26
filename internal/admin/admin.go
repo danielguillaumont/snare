@@ -338,7 +338,13 @@ func (a *API) exportEvents(w http.ResponseWriter, r *http.Request) {
 	bw := bufio.NewWriter(w)
 	enc := json.NewEncoder(bw)
 	for _, e := range evs {
-		_ = enc.Encode(alert.New(byID[e.TokenID], e))
+		// e comes from this tenant's view, so its correlation is computed within the tenant.
+		al, err := alert.Build(r.Context(), a.Store, byID[e.TokenID], e, alert.DefaultCorrelationWindow)
+		if err != nil {
+			a.Log.Error("export: correlate", "err", err)
+			al = alert.New(byID[e.TokenID], e)
+		}
+		_ = enc.Encode(al)
 	}
 	_ = bw.Flush()
 }

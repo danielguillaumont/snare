@@ -135,6 +135,7 @@ CREATE INDEX IF NOT EXISTS events_token_at ON events(token_id, at);
 CREATE INDEX IF NOT EXISTS tokens_tenant ON tokens(tenant_id, created_at);
 CREATE INDEX IF NOT EXISTS events_tenant ON events(tenant_id, id);
 CREATE INDEX IF NOT EXISTS sinks_tenant ON sinks(tenant_id);
+CREATE INDEX IF NOT EXISTS events_source ON events(tenant_id, source_ip, at);
 `
 
 // Open opens (or creates and migrates) the database. Use ":memory:" in tests.

@@ -1,0 +1,32 @@
+id: ab91727b-0dd3-4e1a-9bae-bc811dbb392f
+name: Snare - Several tripwires touched by one source
+description: |
+  One source touched two or more different Snare tripwires within an hour: an agent working
+  through planted traps. Computed from raw findings, so it also catches sources whose
+  touches Snare delivered as separate High alerts.
+severity: High
+requiredDataConnectors: []
+queryFrequency: 5m
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - CredentialAccess
+  - Collection
+relevantTechniques:
+  - T1552
+query: |
+  SnareAlerts_CL
+  | where toint(Ocsf.class_uid) == 2004 and tostring(Ocsf.metadata.product.name) == "Snare"
+  | where toint(Ocsf.severity_id) >= 4
+  | summarize Tripwires = dcount(tostring(Ocsf.unmapped.token_id)), Labels = make_set(TokenLabel, 10),
+      Channels = make_set(Channel), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated)
+      by SrcIp, Tenant = tostring(Ocsf.metadata.tenant_uid)
+  | where Tripwires >= 2
+entityMappings:
+  - entityType: IP
+    fieldMappings:
+      - identifier: Address
+        columnName: SrcIp
+version: 1.0.0
+kind: Scheduled
