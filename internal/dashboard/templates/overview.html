@@ -4,18 +4,20 @@
   <section class="stats">
     <div><b>{{len .Tokens}}</b> tokens</div>
     <div><b>{{.TouchedCount}}</b> touched</div>
-    {{if .Critical}}<div class="crit"><b>{{.Critical}}</b> critical</div>{{end}}
+    <div><b>{{.Open}}</b> open</div>
+    {{if .Critical}}<div class="crit" title="open touches by a source that touched 2 or more tripwires"><b>{{.Critical}}</b> open critical</div>{{end}}
     {{if .Dead}}<div class="crit"><a href="/sinks"><b>{{.Dead}}</b> undelivered</a></div>{{end}}
   </section>
   <h2>Recent touches</h2>
   {{if .Events}}
   <table>
-    <thead><tr><th>Time (UTC)</th><th>Token</th><th>Channel</th><th>Source</th><th>Detail</th><th>Severity</th></tr></thead>
+    <thead><tr><th>Time (UTC)</th><th>Token</th><th>Channel</th><th>Source</th><th>Detail</th><th>Severity</th><th>Status</th></tr></thead>
     <tbody>
-    {{range .Events}}<tr class="hit">
+    {{range .Events}}<tr class="{{if or .Muted (ne .Status "open")}}done{{else}}hit{{end}}">
       <td>{{ts .At}}</td><td><a href="/tokens/{{.TokenID}}">{{if .Label}}{{.Label}}{{else}}{{.TokenID}}{{end}}</a></td>
       <td>{{.Channel}}</td><td><code>{{.SourceIP}}</code></td><td class="detail">{{.Detail}}</td>
       <td>{{if ge .Correlated 2}}<span class="tag crit" title="this source touched {{.Correlated}} tripwires within an hour">critical · {{.Correlated}} tripwires</span>{{else}}<span class="tag hit">high</span>{{end}}{{if .PreviousKey}} <span class="tag" title="verified by a retired signing key: replant this tripwire">old key</span>{{end}}</td>
+      <td>{{template "status" .Event}}</td>
     </tr>{{end}}
     </tbody>
   </table>
@@ -26,7 +28,7 @@
     <tbody>
     {{range .Tokens}}<tr>
       <td><a href="/tokens/{{.ID}}">{{.Label}}</a></td><td>{{.Kind}}</td><td>{{ts .CreatedAt}}</td>
-      <td>{{if index $.Touched .ID}}<span class="tag hit">touched</span>{{else}}<span class="tag">armed</span>{{end}}</td>
+      <td>{{if .Disabled}}<span class="tag" title="touches are recorded but no alert is sent">disabled</span>{{else if index $.Touched .ID}}<span class="tag hit">touched</span>{{else}}<span class="tag">armed</span>{{end}}</td>
     </tr>{{else}}<tr><td colspan="4" class="muted">No tokens. Mint one with <code>snare mint</code> or <code>POST /api/tokens</code>.</td></tr>{{end}}
     </tbody>
   </table>

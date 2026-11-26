@@ -66,9 +66,34 @@ func (c *Client) Mint(kind, label, memo string) (MintResponse, error) {
 }
 
 func (c *Client) Events(tokenID string, limit int) ([]store.Event, error) {
+	return c.EventsFiltered(store.EventFilter{TokenID: tokenID}, limit)
+}
+
+func (c *Client) EventsFiltered(f store.EventFilter, limit int) ([]store.Event, error) {
 	var evs []store.Event
-	err := c.do("GET", fmt.Sprintf("/api/events?token=%s&limit=%d", url.QueryEscape(tokenID), limit), nil, &evs)
+	err := c.do("GET", fmt.Sprintf("/api/events?token=%s&status=%s&limit=%d",
+		url.QueryEscape(f.TokenID), url.QueryEscape(f.Status), limit), nil, &evs)
 	return evs, err
+}
+
+// Triage sets an event's triage status and note.
+func (c *Client) Triage(eventID int64, status, note string) error {
+	return c.do("POST", fmt.Sprintf("/api/events/%d/triage", eventID), TriageRequest{Status: status, Note: note}, nil)
+}
+
+func (c *Client) Tokens() ([]store.Token, error) {
+	var ts []store.Token
+	err := c.do("GET", "/api/tokens", nil, &ts)
+	return ts, err
+}
+
+// SetTokenDisabled mutes (disabled) or unmutes a tripwire.
+func (c *Client) SetTokenDisabled(tokenID string, disabled bool) error {
+	action := "enable"
+	if disabled {
+		action = "disable"
+	}
+	return c.do("POST", "/api/tokens/"+url.PathEscape(tokenID)+"/"+action, nil, nil)
 }
 
 // IssuedKey is a new tenant API key; Key is shown once and not stored in plaintext.

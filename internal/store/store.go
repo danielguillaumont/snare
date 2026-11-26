@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -27,6 +28,7 @@ import (
 var (
 	ErrNotFound = errors.New("store: not found")
 	ErrConflict = errors.New("store: already exists")
+	ErrInvalid  = errors.New("store: invalid value")
 )
 
 // DefaultTenant owns everything created before M4 and everything the operator key does on the
@@ -40,6 +42,8 @@ type Token struct {
 	Label     string    `json:"label"` // human description: where it was planted
 	Memo      string    `json:"memo,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
+	// Disabled tripwires still record touches, muted, but don't alert (M4e §1).
+	Disabled bool `json:"disabled,omitempty"`
 }
 
 type Event struct {
@@ -52,6 +56,39 @@ type Event struct {
 	At       time.Time `json:"at"`
 	// PreviousKey: the token verified under a retired signing key (M4c §5).
 	PreviousKey bool `json:"previous_key,omitempty"`
+	// Muted: the tripwire was disabled when touched, so no alert was sent (M4e §1).
+	Muted bool `json:"muted,omitempty"`
+	// Triage (M4e §2).
+	Status     string     `json:"status"`
+	TriageNote string     `json:"triage_note,omitempty"`
+	TriagedAt  *time.Time `json:"triaged_at,omitempty"`
+	TriagedBy  string     `json:"triaged_by,omitempty"`
+}
+
+// Triage statuses.
+const (
+	StatusOpen          = "open"
+	StatusAcknowledged  = "acknowledged"
+	StatusResolved      = "resolved"
+	StatusFalsePositive = "false_positive"
+)
+
+// ValidStatus reports whether s is a triage status.
+func ValidStatus(s string) bool {
+	switch s {
+	case StatusOpen, StatusAcknowledged, StatusResolved, StatusFalsePositive:
+		return true
+	}
+	return false
+}
+
+// MaxTriageNote bounds a triage note, in bytes.
+const MaxTriageNote = 500
+
+// EventFilter narrows ListEventsFiltered. Empty fields match everything.
+type EventFilter struct {
+	TokenID string
+	Status  string
 }
 
 type Tenant struct {
@@ -137,6 +174,13 @@ var migrations = []struct{ table, column, ddl string }{
 	{"tokens", "tenant_id", `ALTER TABLE tokens ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`},
 	{"events", "tenant_id", `ALTER TABLE events ADD COLUMN tenant_id TEXT NOT NULL DEFAULT ''`},
 	{"events", "prev_key", `ALTER TABLE events ADD COLUMN prev_key INTEGER NOT NULL DEFAULT 0`},
+	// M4e: tripwire lifecycle and triage.
+	{"tokens", "disabled_at", `ALTER TABLE tokens ADD COLUMN disabled_at INTEGER`},
+	{"events", "muted", `ALTER TABLE events ADD COLUMN muted INTEGER NOT NULL DEFAULT 0`},
+	{"events", "status", `ALTER TABLE events ADD COLUMN status TEXT NOT NULL DEFAULT 'open'`},
+	{"events", "triage_note", `ALTER TABLE events ADD COLUMN triage_note TEXT NOT NULL DEFAULT ''`},
+	{"events", "triaged_at", `ALTER TABLE events ADD COLUMN triaged_at INTEGER`},
+	{"events", "triaged_by", `ALTER TABLE events ADD COLUMN triaged_by TEXT NOT NULL DEFAULT ''`},
 }
 
 const indexes = `
@@ -243,6 +287,9 @@ type TenantStore interface {
 	ListDeliveries(ctx context.Context, state string, limit int) ([]Delivery, error)
 	RetryDelivery(ctx context.Context, id int64) error
 	RelatedTouches(ctx context.Context, ev Event, window time.Duration, limit int) ([]RelatedTouch, int, error)
+	ListEventsFiltered(ctx context.Context, f EventFilter, limit int) ([]Event, error)
+	SetTokenDisabled(ctx context.Context, id string, disabled bool) error
+	TriageEvent(ctx context.Context, id int64, status, note string) error
 }
 
 type tenantView struct {
@@ -278,12 +325,12 @@ func (v *tenantView) CreateToken(ctx context.Context, t Token) error {
 	return err
 }
 
-const tokenCols = `id, tenant_id, kind, label, memo, created_at`
+const tokenCols = `id, tenant_id, kind, label, memo, created_at, disabled_at IS NOT NULL`
 
 func scanToken(sc interface{ Scan(...any) error }) (Token, error) {
 	var t Token
 	var ms int64
-	err := sc.Scan(&t.ID, &t.TenantID, &t.Kind, &t.Label, &t.Memo, &ms)
+	err := sc.Scan(&t.ID, &t.TenantID, &t.Kind, &t.Label, &t.Memo, &ms, &t.Disabled)
 	t.CreatedAt = time.UnixMilli(ms).UTC()
 	return t, err
 }
@@ -315,7 +362,7 @@ func (v *tenantView) ListTokens(ctx context.Context) ([]Token, error) {
 	return out, rows.Err()
 }
 
-const eventCols = `id, tenant_id, token_id, channel, source_ip, detail, at, prev_key`
+const eventCols = `id, tenant_id, token_id, channel, source_ip, detail, at, prev_key, muted, status, triage_note, triaged_at, triaged_by`
 
 func scanEvents(rows *sql.Rows) ([]Event, error) {
 	defer rows.Close()
@@ -323,10 +370,16 @@ func scanEvents(rows *sql.Rows) ([]Event, error) {
 	for rows.Next() {
 		var e Event
 		var ms int64
-		if err := rows.Scan(&e.ID, &e.TenantID, &e.TokenID, &e.Channel, &e.SourceIP, &e.Detail, &ms, &e.PreviousKey); err != nil {
+		var triaged sql.NullInt64
+		if err := rows.Scan(&e.ID, &e.TenantID, &e.TokenID, &e.Channel, &e.SourceIP, &e.Detail, &ms, &e.PreviousKey,
+			&e.Muted, &e.Status, &e.TriageNote, &triaged, &e.TriagedBy); err != nil {
 			return nil, err
 		}
 		e.At = time.UnixMilli(ms).UTC()
+		if triaged.Valid {
+			t := time.UnixMilli(triaged.Int64).UTC()
+			e.TriagedAt = &t
+		}
 		out = append(out, e)
 	}
 	return out, rows.Err()
@@ -341,11 +394,19 @@ func clampLimit(limit int) int {
 
 // ListEvents returns the most recent events first. tokenID "" means all of the tenant's tokens.
 func (v *tenantView) ListEvents(ctx context.Context, tokenID string, limit int) ([]Event, error) {
+	return v.ListEventsFiltered(ctx, EventFilter{TokenID: tokenID}, limit)
+}
+
+func (v *tenantView) ListEventsFiltered(ctx context.Context, f EventFilter, limit int) ([]Event, error) {
 	q := `SELECT ` + eventCols + ` FROM events WHERE tenant_id = ?`
 	args := []any{v.tid}
-	if tokenID != "" {
+	if f.TokenID != "" {
 		q += ` AND token_id = ?`
-		args = append(args, tokenID)
+		args = append(args, f.TokenID)
+	}
+	if f.Status != "" {
+		q += ` AND status = ?`
+		args = append(args, f.Status)
 	}
 	q += ` ORDER BY id DESC LIMIT ?`
 	args = append(args, clampLimit(limit))
@@ -403,6 +464,49 @@ func (v *tenantView) ListSinks(ctx context.Context) ([]SinkRecord, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// SetTokenDisabled disables or re-enables one of the tenant's tripwires, audited.
+// Disabling an already disabled tripwire keeps its original time.
+func (v *tenantView) SetTokenDisabled(ctx context.Context, id string, disabled bool) error {
+	act, q := ActTokenEnable, `UPDATE tokens SET disabled_at = NULL WHERE id = ? AND tenant_id = ?`
+	args := []any{id, v.tid}
+	if disabled {
+		act = ActTokenDisable
+		q = `UPDATE tokens SET disabled_at = COALESCE(disabled_at, ?) WHERE id = ? AND tenant_id = ?`
+		args = []any{time.Now().UnixMilli(), id, v.tid}
+	}
+	return inTx(ctx, v.db, v.tid, act, id, "", func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, q, args...)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
+}
+
+// TriageEvent sets one of the tenant's events' status and note, audited. The audit record
+// holds the status and the note's length, not its text.
+func (v *tenantView) TriageEvent(ctx context.Context, id int64, status, note string) error {
+	if !ValidStatus(status) || len(note) > MaxTriageNote {
+		return ErrInvalid
+	}
+	detail := fmt.Sprintf("status=%s note_bytes=%d", status, len(note))
+	return inTx(ctx, v.db, v.tid, ActEventTriage, strconv.FormatInt(id, 10), detail, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE events SET status = ?, triage_note = ?, triaged_at = ?, triaged_by = ? WHERE id = ? AND tenant_id = ?`,
+			status, note, time.Now().UnixMilli(), actorFrom(ctx), id, v.tid)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
 }
 
 func (v *tenantView) DeleteSink(ctx context.Context, id string) error {

@@ -331,7 +331,7 @@ func TestCriticalTouchesAndUndeliveredAlerts(t *testing.T) {
 	_ = ob.MarkFailed(ctx, rows[0].ID, 20, time.Now(), "connection refused", true, time.Now())
 
 	_, body := e.get("/", c)
-	for _, want := range []string{"critical · 2 tripwires", `<b>1</b> critical`, `<b>1</b> undelivered`} {
+	for _, want := range []string{"critical · 2 tripwires", `<b>1</b> open critical`, `<b>1</b> undelivered`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("overview lacks %q", want)
 		}
@@ -343,5 +343,50 @@ func TestCriticalTouchesAndUndeliveredAlerts(t *testing.T) {
 	cb, _ := e.signIn(t, e.keyB)
 	if _, body := e.get("/", cb); strings.Contains(body, "critical") || strings.Contains(body, "undelivered") {
 		t.Fatal("B sees A's critical touch or dead delivery")
+	}
+}
+
+// M4e: triage and disabled state show on the dashboard. A triaged critical touch is no longer
+// counted as open, and a tripwire with two false positives suggests moving it.
+func TestTriageAndDisabledTripwiresShown(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	va := e.st.Tenant(e.a.ID)
+	_ = va.CreateToken(ctx, store.Token{ID: "tok_a2", Kind: "decoy_tool", Label: "acme second"})
+	hit := func(tok, ip string) store.Event {
+		_, ev, _, _, err := e.st.RecordHit(ctx, store.Event{TokenID: tok, Channel: "http", SourceIP: ip, At: time.Now()}, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ev
+	}
+	critical := hit("tok_a2", "203.0.113.5") // second tripwire from the fixture's source
+	c, _ := e.signIn(t, e.keyA)
+	if _, body := e.get("/", c); !strings.Contains(body, `<b>1</b> open critical`) {
+		t.Fatal("critical touch not shown as open")
+	}
+	if err := va.TriageEvent(ctx, critical.ID, store.StatusResolved, "contained, host reimaged"); err != nil {
+		t.Fatal(err)
+	}
+	_, body := e.get("/", c)
+	if strings.Contains(body, "open critical") || !strings.Contains(body, "resolved") || !strings.Contains(body, "contained, host reimaged") {
+		t.Fatal("resolved critical still counted, or its status/note not shown")
+	}
+
+	if err := va.SetTokenDisabled(ctx, "tok_a2", true); err != nil {
+		t.Fatal(err)
+	}
+	hit("tok_a2", "198.51.100.7")
+	_, body = e.get("/", c)
+	if !strings.Contains(body, ">disabled<") || !strings.Contains(body, ">muted<") {
+		t.Fatal("disabled tripwire or muted touch not shown")
+	}
+
+	for _, ip := range []string{"198.51.100.20", "198.51.100.21"} {
+		ev := hit("tok_a", ip)
+		_ = va.TriageEvent(ctx, ev.ID, store.StatusFalsePositive, "")
+	}
+	if _, body := e.get("/tokens/tok_a", c); !strings.Contains(body, "2 touches of this tripwire were marked false positive") {
+		t.Fatal("no placement hint after two false positives")
 	}
 }

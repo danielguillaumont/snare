@@ -69,6 +69,14 @@ prevention (input isolation, tool permissions), not in place of it.
 
 ### Residual risk (known, accepted or not yet addressed)
 
+- **A tenant admin key can mute tripwires.** Disabling a tripwire (M4e) is exactly what
+  an insider who wanted to go unnoticed would do. It can't be done silently:
+  - every disable is in the hash-chained audit log;
+  - touches of a disabled tripwire are still recorded and shown as muted;
+  - `snare_hits_muted_total` counts them.
+
+  Nothing stops a legitimate admin key from doing it, though. Alert on `token.disable` in
+  the audit log if that matters to you.
 - **Operator key is all-powerful, and shared.** Since M4b, every tenant, key and sink
   change, and every dashboard sign-in, is written to a hash-chained audit log in the same
   transaction as the change (`snare audit -verify`). There is still no per-operator identity,

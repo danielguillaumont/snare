@@ -83,13 +83,17 @@ Recommendations:
 
 ## Try it in two minutes
 
-Needs Go, `openssl` and `curl`. Everything runs locally; no model is called.
+Needs only Go. Everything runs locally and no model is called.
 
 ```bash
-scripts/demo.sh     # starts Snare, plants 3 tripwires, sets one off, prints a dashboard key
+go run ./cmd/snare demo     # starts Snare, plants 3 tripwires, sets two off, prints a dashboard key
 # open http://127.0.0.1:18090 and sign in with the printed key
-go test ./...       # includes end-to-end tests: plant -> touch -> alert, two-tenant isolation
+go test ./...               # includes end-to-end tests: plant -> touch -> alert, two-tenant isolation
 ```
+
+In the demo, a simulated agent follows a canary link and then uses a honey API key. Two
+tripwires from one source make the second touch **Critical**. From another terminal,
+`snare events` lists the touches and `snare triage` records what each turned out to be.
 
 ## Status
 
@@ -103,6 +107,7 @@ go test ./...       # includes end-to-end tests: plant -> touch -> alert, two-te
 | M4b hardening: supply chain, fuzzing, audit log, placement advisor, Slack | ✅ Built |
 | M4c reliability: durable alert outbox, metrics, correlation, SIEM rules, key rotation | ✅ Built |
 | M4d operations: dashboard severity, labels sealed at rest, measured capacity | ✅ Built |
+| M4e lifecycle: disable tripwires, triage touches, one-command demo | ✅ Built |
 | M5 design partners | Not started |
 
 Full plan and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).

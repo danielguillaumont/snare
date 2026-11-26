@@ -31,6 +31,7 @@ type Metrics struct {
 	Hits       *metrics.Counter // channel
 	Suppressed *metrics.Counter
 	Shed       *metrics.Counter
+	Muted      *metrics.Counter
 	Deliveries *metrics.Counter // sink, result
 	Latency    *metrics.Histogram
 }
@@ -41,6 +42,7 @@ func NewMetrics(r *metrics.Registry, st *store.Store) *Metrics {
 		Hits:       r.Counter("snare_hits_total", "Verified tripwire hits, before dedup.", "channel"),
 		Suppressed: r.Counter("snare_alerts_suppressed_total", "Hits stored without an alert because an identical one was sent within the dedup window."),
 		Shed:       r.Counter("snare_alerts_shed_total", "Hits stored without an alert because the delivery outbox was full."),
+		Muted:      r.Counter("snare_hits_muted_total", "Hits on disabled tripwires: stored, never alerted."),
 		Deliveries: r.Counter("snare_deliveries_total", "Delivery attempts by sink type and result (ok, retry, dead).", "sink", "result"),
 		Latency: r.Histogram("snare_delivery_latency_seconds", "Time from touch to successful delivery.",
 			[]float64{0.05, 0.25, 1, 5, 30, 120, 600, 3600, 14400}),
@@ -441,7 +443,7 @@ func (p *Pipeline) Hit(ctx context.Context, tm token.Match, channel, sourceIP, d
 	at := now().UTC()
 	// Token ids are globally unique, so the key needs no tenant.
 	alert := p.Dedup.Allow(tokenID+"|"+channel+"|"+sourceIP, at)
-	_, _, _, queued, err := p.Store.RecordHit(ctx, store.Event{
+	_, ev, _, queued, err := p.Store.RecordHit(ctx, store.Event{
 		TokenID: tokenID, Channel: channel, SourceIP: sourceIP, Detail: truncate(detail, 512), At: at,
 		PreviousKey: tm.PreviousKey,
 	}, alert)
@@ -450,6 +452,8 @@ func (p *Pipeline) Hit(ctx context.Context, tm token.Match, channel, sourceIP, d
 	}
 	m.Hits.Inc(channel)
 	switch {
+	case ev.Muted:
+		m.Muted.Inc()
 	case !alert:
 		m.Suppressed.Inc()
 	case !queued:

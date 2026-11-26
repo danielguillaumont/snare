@@ -99,9 +99,14 @@ func (s *Store) RecordHit(ctx context.Context, e Event, alert bool) (tok Token, 
 		tok = s.openToken(t)
 	}
 	e.TenantID = tok.TenantID
+	if found && tok.Disabled { // recorded for the trail, never alerted (M4e §1)
+		e.Muted = true
+		alert = false
+	}
+	e.Status = StatusOpen
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO events (tenant_id, token_id, channel, source_ip, detail, at, prev_key) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		e.TenantID, e.TokenID, e.Channel, e.SourceIP, e.Detail, e.At.UnixMilli(), e.PreviousKey)
+		`INSERT INTO events (tenant_id, token_id, channel, source_ip, detail, at, prev_key, muted) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.TenantID, e.TokenID, e.Channel, e.SourceIP, e.Detail, e.At.UnixMilli(), e.PreviousKey, e.Muted)
 	if err != nil {
 		return Token{}, Event{}, false, false, err
 	}

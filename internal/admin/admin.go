@@ -14,6 +14,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -121,8 +122,11 @@ func Routes() []Route {
 		{"POST /api/tokens", AccessAdmin, h((*API).mint)},
 		{"GET /api/tokens", AccessViewer, h((*API).listTokens)},
 		{"GET /api/tokens/{id}", AccessViewer, h((*API).getToken)},
+		{"POST /api/tokens/{id}/disable", AccessAdmin, func(a *API) http.HandlerFunc { return a.setTokenDisabled(true) }},
+		{"POST /api/tokens/{id}/enable", AccessAdmin, func(a *API) http.HandlerFunc { return a.setTokenDisabled(false) }},
 		{"GET /api/events", AccessViewer, h((*API).listEvents)},
 		{"GET /api/events/export", AccessViewer, h((*API).exportEvents)},
+		{"POST /api/events/{id}/triage", AccessAdmin, h((*API).triageEvent)},
 		{"GET /api/sinks", AccessViewer, h((*API).listSinks)},
 		{"POST /api/sinks", AccessAdmin, h((*API).createSink)},
 		{"DELETE /api/sinks/{id}", AccessAdmin, h((*API).deleteSink)},
@@ -295,13 +299,69 @@ func (a *API) getToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) listEvents(w http.ResponseWriter, r *http.Request) {
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	evs, err := a.view(r).ListEvents(r.Context(), r.URL.Query().Get("token"), limit)
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	f := store.EventFilter{TokenID: q.Get("token"), Status: q.Get("status")}
+	if f.Status != "" && !store.ValidStatus(f.Status) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "status: open, acknowledged, resolved or false_positive"})
+		return
+	}
+	evs, err := a.view(r).ListEventsFiltered(r.Context(), f, limit)
 	if err != nil {
 		a.fail(w, "list events", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, nonNil(evs))
+}
+
+// TriageRequest is the body of POST /api/events/{id}/triage.
+type TriageRequest struct {
+	Status string `json:"status"`
+	Note   string `json:"note,omitempty"`
+}
+
+func (a *API) triageEvent(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	var req TriageRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "body: {\"status\": ..., \"note\": ...}"})
+		return
+	}
+	req.Note = strings.TrimSpace(req.Note)
+	err = a.view(r).TriageEvent(r.Context(), id, req.Status, req.Note)
+	switch {
+	case errors.Is(err, store.ErrInvalid):
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf(
+			"status must be open, acknowledged, resolved or false_positive; note at most %d bytes", store.MaxTriageNote)})
+	case errors.Is(err, store.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+	case err != nil:
+		a.fail(w, "triage event", err)
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// setTokenDisabled mutes or unmutes one tripwire (docs/M4e-lifecycle.md §1).
+func (a *API) setTokenDisabled(disabled bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		err := a.view(r).SetTokenDisabled(r.Context(), id, disabled)
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		if err != nil {
+			a.fail(w, "set token state", err)
+			return
+		}
+		a.Log.Info("tripwire state changed", "token", id, "disabled", disabled, "tenant", principal(r).TenantID)
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 // exportEvents streams the tenant's events as OCSF Detection Findings, one JSON object per
