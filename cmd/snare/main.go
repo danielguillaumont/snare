@@ -11,6 +11,7 @@
 //	snare demo                            run a self-contained local demo
 //	snare tenant create|list|key|revoke   manage tenants and their API keys (operator key)
 //	snare advise -config F [-tools F]     where to put tripwires for an agent (offline)
+//	snare advise -manifest F              which kill-chain layers your plants arm
 //	snare audit [-tenant ID] [-verify]    audit log, or verify its hash chain (operator key)
 //	snare deliveries [-state S] [-retry ID]  alert deliveries; requeue a dead one
 //	snare plant repo|corpus <dir>         plant honey credentials / canary docs
@@ -109,7 +110,7 @@ func usage() {
   snare incidents [-limit N] | -id N
   snare triage -event ID -status acknowledged|resolved|false_positive|open [-note TEXT]
   snare tokens [-disable ID | -enable ID]
-  snare advise -config F [-tools F] [-json]
+  snare advise -config F [-tools F] [-manifest F] [-json] | -manifest F [-json]
   snare audit [-tenant ID] [-limit N] [-verify]
   snare deliveries [-state pending|delivered|dead] [-limit N] [-retry ID]
   snare tenant create -name N | list | key -tenant ID [-role admin|viewer]
