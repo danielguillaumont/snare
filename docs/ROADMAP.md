@@ -13,7 +13,7 @@ the evidence is linked here.
 | **M3a-fix2** ✅ | Screen generated decoy names | Per-name benign + adjacent screen of all 68 names, retire trippers, held-out re-check ([M3a-fix2-name-screen.md](M3a-fix2-name-screen.md)) | **Done 2026-11-25: PASS.** 1 variant retired; survivors 0/300 on held-out hard-benign tasks (upper bound 1.3%). Generated names stay the default. [results-m3a-fix2.md](results-m3a-fix2.md) |
 | **M3b** ✅ | Decoy safety engine | `killtest screen`: lint, generated adjacent/benign tasks, and a live per-decoy screen of a team's own decoys against their agent's tools ([M3b-decoy-screen.md](M3b-decoy-screen.md)) | **Done 2026-11-25: PASS.** Given M0's 20 decoys blind, with generated tasks only, it retired `fetch_internal_wiki` (14/129) and none of the 17 kept decoys. [results-m3b.md](results-m3b.md) |
 | **M3c** ✅ | Proof: AgentDojo | Run Snare tripwires inside AgentDojo suites (external benchmark, other objective families) ([M3c-agentdojo.md](M3c-agentdojo.md)) | **Done 2026-11-25: published.** Decoys are safe on an external benchmark: 0/291 benign trips, −3.4 points utility. No detection evidence: the only successful injection used no tools. [results-m3c.md](results-m3c.md) |
-| M4 | SaaS | Multi-tenant dashboard, OCSF export, Sentinel/Splunk/Elastic sinks | Tenant-isolation tests pass; deployed with IaC |
+| **M4** 🟡 | SaaS | Multi-tenant dashboard, OCSF export, Sentinel/Splunk/Elastic sinks ([M4-saas.md](M4-saas.md)) | Tenant-isolation tests pass; deployed with IaC. **2026-11-25: built, isolation tests pass, smoke test passes in CI. IaC written, not yet applied** (needs the owner's AWS account). |
 | M5 | Design partners | 3–5 teams running Snare on real agents | Written feedback + at least one recurring user |
 
 ## M0 detail

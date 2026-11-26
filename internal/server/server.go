@@ -188,7 +188,7 @@ func Start(cfg Config, log *slog.Logger) (*Server, error) {
 	go s.serveHTTP(s.adminSrv, adminLn, "admin")
 
 	if cfg.DashboardAddr != "" {
-		d := &dashboard.Dashboard{Store: st, SessionKey: deriveKey(cfg.Key, "snare-dashboard-session-key-v1"), Dev: cfg.DashboardDev, Log: log}
+		d := &dashboard.Dashboard{Store: st, SessionKey: deriveKey(cfg.Key, "snare-dashboard-session-key-v1"), Dev: cfg.DashboardDev, TrustProxy: cfg.TrustProxy, Log: log}
 		h, err := d.Handler()
 		if err != nil {
 			return cleanup(err)

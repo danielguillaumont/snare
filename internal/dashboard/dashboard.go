@@ -40,11 +40,13 @@ type Dashboard struct {
 	Store      *store.Store
 	SessionKey []byte // 32+ bytes; derived from SNARE_KEY by the server
 	Dev        bool   // cookies without Secure (http://localhost only)
+	TrustProxy bool   // client IP from the last X-Forwarded-For entry (behind our own proxy)
 	Log        *slog.Logger
 	Now        func() time.Time
 
 	tmpl     *template.Template
-	limiters sync.Map // ip -> *rate.Limiter (sign-in attempts)
+	mu       sync.Mutex
+	limiters map[string]*rate.Limiter // sign-in attempts per client IP
 }
 
 type session struct {
@@ -169,7 +171,14 @@ func (d *Dashboard) loginPage(w http.ResponseWriter, r *http.Request) {
 	d.render(w, "login.html", map[string]any{"CSRF": tok, "Error": r.URL.Query().Get("e") != ""})
 }
 
-func clientIP(r *http.Request) string {
+func (d *Dashboard) clientIP(r *http.Request) string {
+	if d.TrustProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			// The last entry was appended by our own proxy; earlier ones are client-controlled.
+			return strings.TrimSpace(parts[len(parts)-1])
+		}
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
@@ -177,13 +186,27 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
+const maxLimiters = 10000
+
 func (d *Dashboard) allow(ip string) bool {
-	l, _ := d.limiters.LoadOrStore(ip, rate.NewLimiter(rate.Every(12*time.Second), 5)) // 5 now, then 5/min
-	return l.(*rate.Limiter).Allow()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.limiters == nil || len(d.limiters) >= maxLimiters {
+		// Bounded memory under a spray of source addresses. Resetting forgives everyone at
+		// once, which is acceptable: keys are 160-bit random, the limiter is for log noise
+		// and cost, not what stands between an attacker and a guessed key.
+		d.limiters = map[string]*rate.Limiter{}
+	}
+	l, ok := d.limiters[ip]
+	if !ok {
+		l = rate.NewLimiter(rate.Every(12*time.Second), 5) // 5 at once, then 5 per minute
+		d.limiters[ip] = l
+	}
+	return l.Allow()
 }
 
 func (d *Dashboard) login(w http.ResponseWriter, r *http.Request) {
-	if !d.allow(clientIP(r)) {
+	if !d.allow(d.clientIP(r)) {
 		http.Error(w, "too many sign-in attempts; wait a minute", http.StatusTooManyRequests)
 		return
 	}
@@ -199,7 +222,7 @@ func (d *Dashboard) login(w http.ResponseWriter, r *http.Request) {
 	}
 	k, err := d.Store.Authenticate(r.Context(), strings.TrimSpace(r.PostForm.Get("key")))
 	if err != nil {
-		d.Log.Info("dashboard sign-in failed", "ip", clientIP(r))
+		d.Log.Info("dashboard sign-in failed", "ip", d.clientIP(r))
 		http.Redirect(w, r, "/login?e=1", http.StatusSeeOther)
 		return
 	}

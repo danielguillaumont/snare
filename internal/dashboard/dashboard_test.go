@@ -284,6 +284,26 @@ func TestSignInRateLimited(t *testing.T) {
 	}
 }
 
+func TestRateLimitKeysOnProxiedClientIP(t *testing.T) {
+	e := newEnv(t)
+	e.d.TrustProxy = true
+	post := func(xff string) int {
+		r := httptest.NewRequest("POST", "/login", strings.NewReader("key=x&csrf=y"))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("X-Forwarded-For", xff)
+		return e.do(r).StatusCode
+	}
+	for i := 0; i < 6; i++ {
+		post("6.6.6.6, 198.51.100.1") // attacker rotates the spoofable first entry
+	}
+	if post("7.7.7.7, 198.51.100.1") != http.StatusTooManyRequests {
+		t.Fatal("limiter keyed on the client-controlled XFF entry")
+	}
+	if post("198.51.100.2") == http.StatusTooManyRequests {
+		t.Fatal("a different client behind the proxy was limited")
+	}
+}
+
 func TestShortSessionKeyRefused(t *testing.T) {
 	if _, err := (&Dashboard{SessionKey: []byte("short")}).Handler(); err == nil {
 		t.Fatal("accepted a short session key")

@@ -75,7 +75,7 @@ multi-region. These are listed so their absence is a decision, not an oversight.
 |---|---|
 | Webhook (M1) | HMAC-signed POST |
 | Splunk | HTTP Event Collector `POST /services/collector/event`, `Authorization: Splunk <token>`, sourcetype `snare:ocsf:detection_finding` |
-| Elastic | `POST /<index>/_doc`, `Authorization: ApiKey <key>`, adds `@timestamp` |
+| Elastic | `PUT /<index>/_doc/<finding uid>`, `Authorization: ApiKey <key>`, adds `@timestamp`. The document id is the finding uid, so a retried delivery overwrites instead of duplicating |
 | Microsoft Sentinel | Azure Monitor Logs Ingestion API: `POST {dce}/dataCollectionRules/{dcr}/streams/{stream}?api-version=2023-01-01`. Bearer token from Entra ID client credentials (scope `https://monitor.azure.com//.default`), cached until shortly before expiry |
 
 - **Delivery:** the dispatcher resolves a tenant's sinks when it queues an alert. Each
@@ -104,15 +104,32 @@ partners and simple to secure. The scaling path (Postgres, several stateless nod
 milestone.
 
 - **Container:** a multi-stage Docker build into distroless static, running as non-root. It
-  holds the binary only.
+  holds the binary only. It runs `--read-only` with all capabilities dropped. DNS listens on
+  5353 inside the container and is published on the instance's private address port 53,
+  because `127.0.0.53:53` belongs to systemd-resolved.
 - **Terraform for AWS:**
-  - **Compute:** one Graviton EC2 instance with an encrypted EBS data volume and an Elastic IP.
+  - **Compute:** one Graviton EC2 instance with an Elastic IP. The database and ACME state
+    sit on a separate encrypted EBS volume (`prevent_destroy`), so the instance can be
+    replaced without data loss. Data Lifecycle Manager takes daily snapshots of that volume.
+  - **Processes:** two systemd units around `docker run` (Snare, Caddy), so no compose binary
+    has to be fetched at boot.
   - **Network:** security groups open only 80, 443 and 53 (TCP and UDP). The admin API and the
     dashboard sit behind TLS via Caddy.
   - **Secrets:** SSM Parameter Store SecureStrings, readable only by the instance role.
-  - **Access:** IMDSv2 required, and SSM Session Manager instead of SSH (no port 22).
-  - **DNS:** Route 53 records, with NS delegation of the callback zone to the instance.
-- **CI:** `terraform fmt -check` and `terraform validate` run in CI.
+    `scripts/put-secrets.sh` creates them out of band, so they never appear in Terraform plan
+    output or state. It never overwrites a key: rotating `SNARE_KEY` would orphan every minted
+    token, and rotating `SNARE_SEAL_KEY` would make every stored sink unreadable.
+  - **Access:** IMDSv2 required, with hop limit 1 so containers can't reach the metadata
+    service (a second layer under the sink SSRF guard). SSM Session Manager replaces SSH
+    (no port 22).
+  - **Logs:** container logs go to CloudWatch Logs with a retention limit.
+  - **DNS:** Route 53 A records for `api.`, `app.`, `t.` (callbacks) and `ns.`. The `cb.` zone
+    is NS-delegated to the instance, and a CAA record allows only Let's Encrypt.
+- **CI:**
+  - `terraform fmt -check` and `terraform validate`.
+  - A multi-arch image build that checks the image runs as non-root.
+  - `scripts/smoke.sh` against a real server process.
+  - shellcheck on the scripts.
 
 **Deploying needs the owner's AWS account and spends money.** That is the owner's call. M4 is
 "deployable from IaC" once a `terraform apply` from a clean account brings the service up and
@@ -140,3 +157,10 @@ the smoke test (`scripts/smoke.sh`: mint → touch → alert) passes. Until then
 ## Changelog
 
 - 2026-11-25: design fixed before code.
+- 2026-11-25 (during build):
+  - Elastic uses `PUT /_doc/<finding uid>` instead of `POST /_doc`, so retries are idempotent.
+  - Deployment details pinned down: separate data volume plus DLM snapshots, systemd units
+    instead of compose, secrets created out of band, IMDS hop limit 1, a CAA record.
+  - The dashboard sign-in limiter honours `SNARE_TRUST_PROXY`. Behind Caddy, every client
+    would otherwise share one limit.
+  - No test thresholds changed; this milestone has no pre-registered numbers.

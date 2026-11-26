@@ -43,7 +43,19 @@ input that turned it.
 > catching hijacks: [docs/results-m3c.md](docs/results-m3c.md).
 >
 > **M1 callback server and M2 tripwire kit are built** and covered by end-to-end tests
-> (plant → touch → signed alert). Not yet deployed as a hosted service.
+> (plant → touch → signed alert).
+>
+> **M4 hosted service: built, IaC written, not yet applied.**
+> - **Tenancy:** tenant isolation is enforced in the store. Tests cover every tenant-scoped
+>   method and every API route, for each caller, against both its own ids and another tenant's.
+> - **Alerts:** OCSF 1.3 Detection Findings, with sinks for Splunk HEC, Elastic and Microsoft
+>   Sentinel. Per-tenant sink credentials are sealed at rest, and an SSRF guard checks the
+>   address again when connecting.
+> - **Dashboard:** read-only.
+> - **Infrastructure:** Terraform for one AWS node.
+>
+> CI runs the deploy smoke test against a real server. Nothing is hosted yet:
+> [docs/M4-saas.md](docs/M4-saas.md).
 
 ## Why
 
@@ -62,7 +74,8 @@ touched, or it wasn't.
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones M0–M5 and their exit criteria |
 | [docs/killtest.md](docs/killtest.md) | Pre-registered protocol and go / iterate / kill thresholds |
 | [experiments/killtest/](experiments/killtest/) | The kill-test harness (Python, Claude API) |
-| [cmd/snare](cmd/snare), [internal/](internal/) | Go CLI and services: callback server (M1), decoy MCP server and planting (M2) |
+| [cmd/snare](cmd/snare), [internal/](internal/) | Go CLI and services: callback server (M1), decoy MCP server and planting (M2), tenancy, sinks and dashboard (M4) |
+| [deploy/](deploy/), [Dockerfile](Dockerfile), [scripts/](scripts/) | M4: Terraform for AWS, Caddy config, secrets bootstrap and the post-deploy smoke test |
 | [examples/](examples/) | Sample repo and RAG corpus used as planting targets in tests |
 | [CLAUDE.md](CLAUDE.md) | Working rules for Claude Code in this repo |
 
@@ -89,13 +102,29 @@ Every live run has a hard `--max-usd` ceiling.
 
 ```powershell
 go build -o bin/snare.exe ./cmd/snare
-bin\snare.exe keygen                       # prints SNARE_KEY, SNARE_ADMIN_KEY, SNARE_WEBHOOK_SECRET
+bin\snare.exe keygen                       # prints SNARE_KEY, SNARE_ADMIN_KEY, SNARE_WEBHOOK_SECRET, SNARE_SEAL_KEY
 # set those plus SNARE_ZONE / SNARE_DNS_ADDR / SNARE_WEBHOOK_URL as needed (see docs/M1-callback.md)
 bin\snare.exe serve
 bin\snare.exe mint -kind honey_credential -label "payments-api .env: OPENAI_API_KEY"
 bin\snare.exe events
 go test ./...                               # includes the M1 (< 5 s alert) and M2 (plant → fire) end-to-end tests
 ```
+
+## Tenants, sinks and the dashboard (M4)
+
+With `SNARE_SEAL_KEY` and `SNARE_DASHBOARD_ADDR` set, the same binary serves several tenants.
+The operator key manages tenants. Each tenant gets its own API keys and sees only its own
+tokens, events and sinks.
+
+```powershell
+bin\snare.exe tenant create -name "Acme"                # prints the tenant id
+bin\snare.exe tenant key -tenant tn_... -role admin     # prints a tenant key once; only its hash is stored
+$env:SNARE_ADMIN_KEY = "snk_..."; bin\snare.exe mint -kind canary_url -label "runbook link"   # as the tenant
+```
+
+A tenant adds its own SIEM with `POST /api/sinks` (`splunk_hec`, `elastic`, `sentinel` or
+`webhook`), and `GET /api/events/export` streams its findings as OCSF NDJSON. Deployment is in
+[deploy/README.md](deploy/README.md).
 
 ## Planting tripwires (M2)
 

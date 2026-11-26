@@ -19,6 +19,55 @@ jobs:
       - run: go vet ./...
       - run: go test -race ./...
 
+  smoke:
+    # The deploy smoke test (scripts/smoke.sh) against a real server process: two tenants,
+    # mint -> touch -> event, OCSF export, cross-tenant denial.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: shellcheck -S warning scripts/*.sh
+      - run: go build -o /tmp/snare ./cmd/snare
+      - name: smoke
+        run: |
+          export SNARE_KEY=$(openssl rand -hex 32) SNARE_ADMIN_KEY=$(openssl rand -hex 24) SNARE_SEAL_KEY=$(openssl rand -hex 32)
+          export SNARE_DB=/tmp/smoke.db SNARE_HTTP_ADDR=127.0.0.1:8080 SNARE_ADMIN_ADDR=127.0.0.1:8081 SNARE_PUBLIC_URL=http://cb.smoke.test
+          /tmp/snare serve > /tmp/snare.log 2>&1 &
+          for _ in $(seq 1 50); do curl -s -o /dev/null 127.0.0.1:8081 && break; sleep 0.1; done
+          SNARE_API=http://127.0.0.1:8081 SNARE_CALLBACK_BASE=http://127.0.0.1:8080 scripts/smoke.sh
+      - if: failure()
+        run: cat /tmp/snare.log
+
+  image:
+    # Build (not push) the multi-arch image. The Go build cross-compiles on the runner, so
+    # no emulation is needed for arm64.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - run: docker buildx build --platform linux/amd64,linux/arm64 -t snare:ci .
+      - name: runs as non-root, binary only
+        run: |
+          docker buildx build --load -t snare:ci .
+          test "$(docker image inspect snare:ci --format '{{.Config.User}}')" = "65532:65532"
+          docker run --rm snare:ci keygen | grep -q '^SNARE_SEAL_KEY='
+
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - run: terraform fmt -check -recursive -diff
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate
+
   killtest:
     runs-on: ubuntu-latest
     defaults:
