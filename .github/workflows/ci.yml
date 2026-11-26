@@ -36,3 +36,18 @@ jobs:
       - run: python -m killtest run --dry-run --arm m3 --runs 40
       - run: python -m killtest run --dry-run --arm m3 --env fix --runs 40
       - run: python -m killtest screen --tools m0 --decoys m0 --dry-run --out /tmp/screen-dry
+
+  # M3c: the AgentDojo adapter against the pinned benchmark, with the offline fake model ($0).
+  killtest-agentdojo:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: experiments/killtest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,agentdojo]"
+      - run: python -m pytest -q tests/test_dojo.py tests/test_dojo_integration.py
+      - run: python -m killtest dojo --dry-run --user-limit 3 --attack-users 1 --out /tmp/dojo-dry

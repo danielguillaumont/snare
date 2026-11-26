@@ -14,6 +14,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# M3c only (docs/M3c-agentdojo.md). Pinned: results are tied to this benchmark version.
+agentdojo = ["agentdojo==0.1.35"]
 
 [tool.setuptools.packages.find]
 include = ["killtest*"]
@@ -23,3 +25,5 @@ killtest = ["data/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# agentdojo pulls in langsmith, whose auto-loaded pytest plugin we don't use.
+addopts = "-p no:langsmith_plugin"

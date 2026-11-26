@@ -256,6 +256,86 @@ def cmd_screen_report(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dojo(a: argparse.Namespace) -> int:
+    import os
+
+    from . import dojo as dj
+    from .screen import catalog_decoys
+
+    out = Path(a.out)
+    if (out / "runs.jsonl").exists():
+        sys.exit(f"{out / 'runs.jsonl'} exists; use a new --out directory")
+    decoys = catalog_decoys()
+    installs = load_fix_names()["installs"]
+    index = dj.task_index(a.suites)
+    lint_result = dj.lint_suites(dj.suite_tools(), decoys, installs)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "lint.json").write_text(json.dumps(lint_result, indent=1), encoding="utf-8")
+    dropped = {s: d for s, d in lint_result["dropped"].items() if d}
+    print(f"lint: {len(lint_result['errors'])} errors; dropped {dropped or 'none'}")
+    if lint_result["errors"] and not a.ignore_lint:
+        sys.exit("lint errors (see lint.json); fix them or pass --ignore-lint")
+
+    if a.dry_run:
+        models = ["fake"]
+        shown = {d.name for d in decoys} | {n for ins in installs for n in ins["names"].values()}
+        client = dj.FakeDojoClient(shown, p_decoy=0.05, seed=a.seed)
+    else:
+        models = a.models
+        unknown = [m for m in models if m not in PRICES or m == "fake"]
+        if unknown:
+            sys.exit(f"unknown model(s) {unknown}")
+        import anthropic
+
+        load_dotenv()
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            sys.exit("ANTHROPIC_API_KEY not found: set it in the environment or in experiments/killtest/.env")
+        client = anthropic.Anthropic(max_retries=4)
+
+    attack_users = None if a.attack_users == "all" else int(a.attack_users)
+    specs = dj.build_dojo_plan(index, lint_result["allowed"], installs, models, arms=tuple(a.arms), reps=a.reps,
+                               attack_users=attack_users, user_limit=a.user_limit, seed=a.seed)
+    print(f"{len(specs)} runs planned ({', '.join(f'{arm} {sum(s.arm == arm for s in specs)}' for arm in a.arms)}); "
+          f"hard ceiling ${a.max_usd:.2f}")
+    if a.plan_only:
+        return 0
+    (out / "plan.json").write_text(json.dumps(
+        {"agentdojo": dj.AGENTDOJO_VERSION, "benchmark": dj.BENCHMARK_VERSION, "attack": dj.ATTACK, "seed": a.seed,
+         "effort": a.effort, "max_usd": a.max_usd, "models": models, "specs": [s.to_dict() for s in specs]},
+        indent=1), encoding="utf-8")
+
+    done = 0
+
+    def progress(rec: dict) -> None:
+        nonlocal done
+        done += 1
+        if done % 25 == 0 or done == len(specs):
+            print(f"  {done}/{len(specs)} runs", flush=True)
+
+    meta = dj.execute_dojo(specs, client, {d.name: d for d in decoys}, out, max_usd=a.max_usd, workers=a.workers,
+                           effort=a.effort, on_result=progress)
+    (out / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    s = dj.write_dojo_report([out], out, lint_result)
+    print(f"spent ${meta['spent_usd']:.2f}; skipped {meta['runs_skipped_budget']} for budget; {s['errors']} errors")
+    for k, c in s["checks"].items():
+        print(f"  {k} {'pass' if c['pass'] else 'FAIL'}: {c['detail']}")
+    print(f"report: {out / 'report.md'}")
+    return 0
+
+
+def cmd_dojo_report(a: argparse.Namespace) -> int:
+    from . import dojo as dj
+
+    dirs = [Path(d) for d in a.dirs]
+    lint_path = dirs[0] / "lint.json"
+    lint_result = json.loads(lint_path.read_text(encoding="utf-8")) if lint_path.exists() else None
+    s = dj.write_dojo_report(dirs, Path(a.out), lint_result)
+    for k, c in s["checks"].items():
+        print(f"  {k} {'pass' if c['pass'] else 'FAIL'}: {c['detail']}")
+    print(f"report: {Path(a.out) / 'report.md'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="killtest", description="Snare kill test")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -310,6 +390,29 @@ def main(argv: list[str] | None = None) -> int:
     sr.add_argument("dir")
     sr.add_argument("--validate", action="store_true", help="add the M3b validation checks (M0 decoys)")
     sr.set_defaults(fn=cmd_screen_report)
+
+    dj = sub.add_parser("dojo", help="M3c: run Snare decoys inside AgentDojo suites (needs .[agentdojo])")
+    dj.add_argument("--models", nargs="+", default=["claude-haiku-5-5"])
+    dj.add_argument("--arms", nargs="+", choices=["plain", "benign", "attack"], default=["plain", "benign", "attack"])
+    dj.add_argument("--suites", nargs="+", choices=["banking", "slack", "travel", "workspace"])
+    dj.add_argument("--reps", type=int, default=1, help="runs per user task in plain/benign")
+    dj.add_argument("--attack-users", default="all",
+                    help="'all' = every (user, injection) pair; N = N user tasks per injection task (stratified)")
+    dj.add_argument("--user-limit", type=int, help="first N user tasks per suite (pilot)")
+    dj.add_argument("--max-usd", type=float, default=2.0, help="hard spending ceiling (default $2)")
+    dj.add_argument("--workers", type=int, default=4)
+    dj.add_argument("--effort", choices=["low", "medium", "high"], default="medium")
+    dj.add_argument("--seed", type=int, default=97)
+    dj.add_argument("--out", required=True)
+    dj.add_argument("--dry-run", action="store_true", help="scripted fake model; no API calls")
+    dj.add_argument("--plan-only", action="store_true")
+    dj.add_argument("--ignore-lint", action="store_true")
+    dj.set_defaults(fn=cmd_dojo)
+
+    djr = sub.add_parser("dojo-report", help="M3c: one report over one or more dojo result directories")
+    djr.add_argument("dirs", nargs="+")
+    djr.add_argument("--out", required=True)
+    djr.set_defaults(fn=cmd_dojo_report)
 
     a = p.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):
