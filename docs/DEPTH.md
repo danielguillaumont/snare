@@ -77,7 +77,7 @@ reasoning.
 |---|---|---|---|
 | **M6** | Snare Gateway | G2, G3, G6 (foundation) | A stdio proxy that forwards every MCP message unchanged, injects decoys, carries session ids into alerts, and detects honey values in arguments. Tested end to end against a real MCP server. Forwarding overhead is measured and published. |
 | **M7** | Layers, stages and incidents | G1 | Every tripwire kind has a layer and a stage. Touches group into incidents by session, with severity set by the deepest stage. Incidents appear in OCSF and on the dashboard as a timeline. `advise` reports layer coverage. |
-| **M8** | Containment | G4 | With `contain` on, a touch freezes the session's tool calls within one call. Release is audited. With Snare's side down, forwarding is unaffected (tested). **Needs your decision, below.** |
+| **M8** | Containment | G4 | With `contain` on, a touch freezes the session's tool calls within one call. Release is audited. With Snare's side down, forwarding is unaffected (tested). Opt-in, off by default (decided below). |
 | **M9** | Provenance and attribution | G2 | An end-to-end test plants a poisoned document; the resulting alert names it as the last untrusted input before the touch. No tool content is stored unless capture is turned on. |
 | **M10** | Context-layer tripwires | G6 | Prompt canaries (a system prompt that leaks shows up as a touch) and memory canaries for vector stores, with planting support. |
 | **M11** | Heartbeat | G5 | Scheduled synthetic touches exercise each channel (HTTP, DNS, gateway) end to end, marked as tests, so SIEM rules ignore them. The dashboard shows "verified N min ago" per channel, and a metric goes stale when a path breaks. |
@@ -117,12 +117,14 @@ through.
   decoy server. Decoys inside a real server's list could do more harm, so M13 re-measures
   benign trips and utility, and generated names stay off by default until then.
 
-## Decision needed
+## Decision: containment is opt-in
+
+**Decided 2026-11-26 by Daniel: ship containment, opt-in and off by default.** The spec's
+non-goal now reads "preventing injection before a tripwire fires". The reasoning:
+
 
 **Containment (M8) changes a non-goal.** [SPEC.md](SPEC.md) lists "blocking or preventing
 injection" as a non-goal. Freezing a session *after* a trap fires is response, not
 prevention: it doesn't stop injection, it limits what a hijacked session does next.
-Still, it moves Snare from "observe" to "act". The proposal is to ship it opt-in and off by
-default, and to reword the non-goal to "preventing injection before a tripwire fires". If you
-would rather keep Snare purely observational, M8 is dropped, and the gateway still emits
-the alert and a response webhook.
+Still, it moves Snare from "observe" to "act", which is why it is off unless an operator
+turns it on.

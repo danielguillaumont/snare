@@ -52,6 +52,8 @@ session and input responsible.
 
 ## Non-goals (v1)
 
-- Blocking or preventing injection (that is gatehouse's job; Snare integrates, not replaces).
+- Preventing injection before a tripwire fires (that is gatehouse's job; Snare integrates, not
+  replaces). After a touch, Snare may contain the session, opt-in and off by default (M8,
+  decided 2026-11-26; see [DEPTH.md](DEPTH.md#decision-containment-is-opt-in)).
 - Endpoint agents or kernel-level collection.
 - Using real third-party credential formats that could trip other organizations' scanners.

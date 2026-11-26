@@ -30,7 +30,7 @@ Each row gets its own design doc before code.
 |---|---|---|---|
 | M6 | Snare Gateway | MCP proxy in front of real servers: decoys injected into real tool lists, session ids on every touch, honey values detected in tool arguments | Forwards every message unchanged, tested end to end against a real MCP server; forwarding overhead measured and published |
 | M7 | Layers, stages, incidents | Every tripwire has a layer (ingest, context, tool, data, egress, use) and a kill-chain stage; touches grouped into incidents by session; severity = deepest stage | Incidents in OCSF and as a dashboard timeline; `advise` reports layer coverage |
-| M8 | Containment (opt-in) | Gateway freezes a session's tool calls after a touch; audited release | Frozen within one call; forwarding unaffected when Snare's side is down. **Needs a decision on the spec non-goal** ([DEPTH.md](DEPTH.md#decision-needed)) |
+| M8 | Containment (opt-in) | Gateway freezes a session's tool calls after a touch; audited release | Frozen within one call; forwarding unaffected when Snare's side is down. Opt-in, off by default (decided 2026-11-26, [DEPTH.md](DEPTH.md#decision-containment-is-opt-in)) |
 | M9 | Provenance and attribution | Per-session ledger of untrusted inputs (hashes, not content); per-source markers | A poisoned document is named in the alert as the last untrusted input before the touch |
 | M10 | Context-layer tripwires | Prompt canaries and memory / vector-store canaries | A leaked system prompt or recalled memory canary is a touch |
 | M11 | Heartbeat | Scheduled synthetic touches per channel, marked as tests | "Verified N min ago" per channel; a stale metric when a path breaks |
