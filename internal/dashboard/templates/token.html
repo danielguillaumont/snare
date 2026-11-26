@@ -6,11 +6,14 @@
     <dt>ID</dt><dd><code>{{.Token.ID}}</code></dd>
     <dt>Kind</dt><dd>{{.Token.Kind}}</dd>
     <dt>Created</dt><dd>{{ts .Token.CreatedAt}}</dd>
+    <dt>State</dt><dd>{{if .Token.Disabled}}<span class="tag">disabled</span> touches are recorded, no alert is sent. Re-enable with <code>snare tokens -enable {{.Token.ID}}</code>.{{else}}<span class="tag">armed</span>{{end}}</dd>
   </dl>
+  {{if ge .FalsePositives 2}}<p class="warn"><b>{{.FalsePositives}} touches of this tripwire were marked false positive.</b> Legitimate work keeps reaching it, so it is probably in the wrong place. Move it, or disable it with <code>snare tokens -disable {{.Token.ID}}</code>.</p>{{end}}
   <h2>Touches ({{len .Events}})</h2>
   {{if .Events}}<table>
-    <thead><tr><th>Time (UTC)</th><th>Channel</th><th>Source</th><th>Detail</th></tr></thead>
-    <tbody>{{range .Events}}<tr class="hit"><td>{{ts .At}}</td><td>{{.Channel}}</td><td><code>{{.SourceIP}}</code></td><td class="detail">{{.Detail}}</td></tr>{{end}}</tbody>
-  </table>{{else}}<p class="muted">Not touched.</p>{{end}}
+    <thead><tr><th>ID</th><th>Time (UTC)</th><th>Channel</th><th>Source</th><th>Detail</th><th>Status</th></tr></thead>
+    <tbody>{{range .Events}}<tr class="{{if or .Muted (ne .Status "open")}}done{{else}}hit{{end}}"><td><code>{{.ID}}</code></td><td>{{ts .At}}</td><td>{{.Channel}}</td><td><code>{{.SourceIP}}</code></td><td class="detail">{{.Detail}}</td><td>{{template "status" .}}</td></tr>{{end}}</tbody>
+  </table>
+  <p class="muted">Record what a touch turned out to be: <code>snare triage -event ID -status acknowledged|resolved|false_positive</code>.</p>{{else}}<p class="muted">Not touched.</p>{{end}}
 </main>
 {{template "foot"}}

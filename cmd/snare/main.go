@@ -4,7 +4,10 @@
 //	snare keygen                          print random keys for SNARE_KEY / SNARE_ADMIN_KEY / SNARE_SEAL_KEY
 //	snare serve                           run listeners (config from SNARE_* env vars)
 //	snare mint -kind K -label L           mint a token through the admin API
-//	snare events [-token ID]              list recent tripwire events
+//	snare events [-token ID] [-status S]  list recent tripwire events
+//	snare triage -event ID -status S      record what a touch turned out to be
+//	snare tokens [-disable ID|-enable ID] list tripwires; mute or unmute one
+//	snare demo                            run a self-contained local demo
 //	snare tenant create|list|key|revoke   manage tenants and their API keys (operator key)
 //	snare advise -config F [-tools F]     where to put tripwires for an agent (offline)
 //	snare audit [-tenant ID] [-verify]    audit log, or verify its hash chain (operator key)
@@ -37,6 +40,7 @@ import (
 	"github.com/danielguillaumont/snare/internal/mcp"
 	"github.com/danielguillaumont/snare/internal/plant"
 	"github.com/danielguillaumont/snare/internal/server"
+	"github.com/danielguillaumont/snare/internal/store"
 )
 
 func main() {
@@ -64,6 +68,12 @@ func main() {
 		err = tenantCmd(os.Args[2:])
 	case "events":
 		err = events(os.Args[2:])
+	case "triage":
+		err = triageCmd(os.Args[2:])
+	case "tokens":
+		err = tokensCmd(os.Args[2:])
+	case "demo":
+		err = demoCmd(os.Args[2:])
 	case "plant":
 		err = plantCmd(os.Args[2:])
 	case "decoy-mcp":
@@ -83,10 +93,13 @@ func main() {
 func usage() {
 	fmt.Fprint(os.Stderr, `usage:
   snare version
+  snare demo [-http ADDR] [-admin ADDR] [-dashboard ADDR]
   snare keygen
   snare serve
   snare mint -kind K -label L [-memo M]
-  snare events [-token ID] [-limit N]
+  snare events [-token ID] [-status open|acknowledged|resolved|false_positive] [-limit N]
+  snare triage -event ID -status acknowledged|resolved|false_positive|open [-note TEXT]
+  snare tokens [-disable ID | -enable ID]
   snare advise -config F [-tools F] [-json]
   snare audit [-tenant ID] [-limit N] [-verify]
   snare deliveries [-state pending|delivered|dead] [-limit N] [-retry ID]
@@ -170,16 +183,21 @@ func mint(args []string) error {
 func events(args []string) error {
 	fs := flag.NewFlagSet("events", flag.ExitOnError)
 	tok := fs.String("token", "", "filter by token id")
+	status := fs.String("status", "", "filter by triage status: open, acknowledged, resolved, false_positive")
 	limit := fs.Int("limit", 50, "max events")
 	_ = fs.Parse(args)
-	evs, err := client().Events(*tok, *limit)
+	evs, err := client().EventsFiltered(store.EventFilter{TokenID: *tok, Status: *status}, *limit)
 	if err != nil {
 		return err
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "TIME\tCHANNEL\tTOKEN\tSOURCE\tDETAIL")
+	fmt.Fprintln(tw, "ID\tTIME\tSTATUS\tCHANNEL\tTOKEN\tSOURCE\tDETAIL")
 	for _, e := range evs {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", e.At.Format(time.RFC3339), e.Channel, e.TokenID, e.SourceIP, e.Detail)
+		st := e.Status
+		if e.Muted {
+			st += " (muted)"
+		}
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", e.ID, e.At.Format(time.RFC3339), st, e.Channel, e.TokenID, e.SourceIP, e.Detail)
 	}
 	return tw.Flush()
 }

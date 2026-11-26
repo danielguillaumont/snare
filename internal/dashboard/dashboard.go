@@ -285,15 +285,19 @@ func (d *Dashboard) overview(w http.ResponseWriter, r *http.Request, s session) 
 	}
 	rows := make([]eventRow, 0, len(evs))
 	touched := map[string]bool{}
-	critical := 0
+	critical, open := 0, 0
 	for _, e := range evs {
 		_, n, err := v.RelatedTouches(r.Context(), e, correlationWindow, 0)
 		if err != nil {
 			d.fail(w, err)
 			return
 		}
-		if n >= 2 {
-			critical++
+		isOpen := e.Status == store.StatusOpen && !e.Muted
+		if isOpen {
+			open++
+			if n >= 2 {
+				critical++
+			}
 		}
 		rows = append(rows, eventRow{Event: e, Label: labels[e.TokenID], Correlated: n})
 		touched[e.TokenID] = true
@@ -305,7 +309,7 @@ func (d *Dashboard) overview(w http.ResponseWriter, r *http.Request, s session) 
 	}
 	d.render(w, "overview.html", map[string]any{
 		"S": s, "Tokens": toks, "Events": rows, "Touched": touched, "TouchedCount": len(touched),
-		"Critical": critical, "Dead": len(dead),
+		"Critical": critical, "Open": open, "Dead": len(dead),
 	})
 }
 
@@ -325,7 +329,13 @@ func (d *Dashboard) tokenPage(w http.ResponseWriter, r *http.Request, s session)
 		d.fail(w, err)
 		return
 	}
-	d.render(w, "token.html", map[string]any{"S": s, "Token": t, "Events": evs})
+	fp := 0
+	for _, e := range evs {
+		if e.Status == store.StatusFalsePositive {
+			fp++
+		}
+	}
+	d.render(w, "token.html", map[string]any{"S": s, "Token": t, "Events": evs, "FalsePositives": fp})
 }
 
 func (d *Dashboard) sinksPage(w http.ResponseWriter, r *http.Request, s session) {

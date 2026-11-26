@@ -57,6 +57,13 @@ flowchart LR
    ([M4c](M4c-reliability.md)).
 6. **Respond.** The toucher only ever sees a bland `200 {"status":"ok"}` or an ordinary A
    record. It learns nothing about Snare.
+7. **Triage.** An analyst records what the touch was: `acknowledged`, `resolved` or
+   `false_positive` (`snare triage`, `POST /api/events/{id}/triage`). Exported findings carry
+   the matching OCSF `status_id`. Repeated false positives on one tripwire mean it is badly
+   placed, and its dashboard page says so ([M4e](M4e-lifecycle.md)).
+8. **Retire.** A tripwire that's no longer planted, or that a test leaked, is disabled
+   (`snare tokens -disable ID`). Its touches are still recorded, marked muted, but no
+   alert is sent. Every disable and enable is in the audit log.
 
 ## Package map
 

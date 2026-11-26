@@ -19,6 +19,10 @@ tr.hit td:first-child { box-shadow: inset 3px 0 var(--hit); }
 td.detail { max-width:420px; overflow-wrap:anywhere; color:var(--muted); }
 .tag { white-space:nowrap; font-size:12px; padding:1px 8px; border-radius:10px; border:1px solid var(--line); color:var(--muted); }
 .tag.hit { color:var(--hit); background:var(--hit-bg); border-color:transparent; }
+.tag.ok { color:var(--muted, #667); background:transparent; }
+tr.done td { color:var(--muted, #667); }
+.note { color:var(--muted, #667); font-size:.85em; max-width:24ch; display:inline-block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
+.warn { border-left:3px solid var(--hit); padding:.5rem .75rem; background:var(--hit-bg); }
 .tag.crit { color:#fff; background:var(--hit); border-color:transparent; font-weight:600; }
 .stats .crit, .stats .crit a { color:var(--hit); }
 .muted { color:var(--muted); }

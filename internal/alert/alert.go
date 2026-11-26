@@ -30,7 +30,8 @@ type Alert struct {
 	Severity     string       `json:"severity"`
 	StatusID     int          `json:"status_id"`
 	Status       string       `json:"status"`
-	Time         int64        `json:"time"` // epoch ms
+	StatusDetail string       `json:"status_detail,omitempty"` // Snare's triage status, or "muted"
+	Time         int64        `json:"time"`                    // epoch ms
 	Message      string       `json:"message"`
 	FindingInfo  FindingInfo  `json:"finding_info"`
 	SrcEndpoint  Endpoint     `json:"src_endpoint"`
@@ -40,10 +41,10 @@ type Alert struct {
 }
 
 type FindingInfo struct {
-	UID           string   `json:"uid"`
-	Title         string   `json:"title"`
-	Desc          string   `json:"desc,omitempty"`
-	Types         []string `json:"types"`
+	UID           string         `json:"uid"`
+	Title         string         `json:"title"`
+	Desc          string         `json:"desc,omitempty"`
+	Types         []string       `json:"types"`
 	FirstSeenTime int64          `json:"first_seen_time"`
 	Analytic      Analytic       `json:"analytic"`
 	RelatedEvents []RelatedEvent `json:"related_events,omitempty"`
@@ -113,13 +114,12 @@ var ProductVersion = "0.6.0"
 func New(tok store.Token, ev store.Event) Alert {
 	ms := ev.At.UnixMilli()
 	uid := findingUID(tok.ID, ev.ID)
-	return Alert{
+	a := Alert{
 		ActivityID: 1, ActivityName: "Create",
 		CategoryUID: 2, CategoryName: "Findings",
 		ClassUID: 2004, ClassName: "Detection Finding",
 		TypeUID: 200401, TypeName: "Detection Finding: Create",
 		SeverityID: 4, Severity: "High", // legitimate work never touches a tripwire
-		StatusID: 1, Status: "New",
 		Time:    ms,
 		Message: fmt.Sprintf("Snare tripwire touched via %s: %s", ev.Channel, tok.Label),
 		FindingInfo: FindingInfo{
@@ -148,9 +148,29 @@ func New(tok store.Token, ev store.Event) Alert {
 			CorrelatedTripwires: 1, VerifiedByPreviousKey: ev.PreviousKey,
 		},
 	}
+	a.setStatus(ev)
+	return a
 }
 
-func findingUID(tokenID string, eventID int64) string { return fmt.Sprintf("snare-%s-%d", tokenID, eventID) }
+// setStatus maps Snare's triage state onto OCSF status_id (docs/M4e-lifecycle.md §2). A
+// touch of a disabled tripwire is Suppressed, whatever its triage.
+func (a *Alert) setStatus(ev store.Event) {
+	a.StatusDetail = ev.Status
+	switch {
+	case ev.Muted:
+		a.StatusID, a.Status, a.StatusDetail = 3, "Suppressed", "muted"
+	case ev.Status == store.StatusAcknowledged:
+		a.StatusID, a.Status = 2, "In Progress"
+	case ev.Status == store.StatusResolved, ev.Status == store.StatusFalsePositive:
+		a.StatusID, a.Status = 4, "Resolved"
+	default:
+		a.StatusID, a.Status, a.StatusDetail = 1, "New", ""
+	}
+}
+
+func findingUID(tokenID string, eventID int64) string {
+	return fmt.Sprintf("snare-%s-%d", tokenID, eventID)
+}
 
 // Correlate records the other tripwires the same source touched shortly before. Two or more
 // distinct tripwires raise the alert to Critical: one touch can be an accident, a source

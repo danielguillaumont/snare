@@ -239,6 +239,33 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				t.Fatalf("A's own correlation: %d %+v %v", n, rel, err)
 			}
 		},
+		"ListEventsFiltered": func(t *testing.T, f fixture) {
+			evs, err := f.a.ListEventsFiltered(ctx, EventFilter{TokenID: "tok_b"}, 10)
+			if err != nil || len(evs) != 0 {
+				t.Fatalf("A filtered on B's token: %+v %v", evs, err)
+			}
+			evs, _ = f.a.ListEventsFiltered(ctx, EventFilter{Status: StatusOpen}, 10)
+			if len(evs) != 1 || evs[0].TokenID != "tok_a" {
+				t.Fatalf("A's open events: %+v", evs)
+			}
+		},
+		"SetTokenDisabled": func(t *testing.T, f fixture) {
+			if err := f.a.SetTokenDisabled(ctx, "tok_b", true); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("A disabled B's token: %v", err)
+			}
+			if tb, _ := f.b.GetToken(ctx, "tok_b"); tb.Disabled {
+				t.Fatal("B's token was disabled by A")
+			}
+		},
+		"TriageEvent": func(t *testing.T, f fixture) {
+			eb, _ := f.b.ListEvents(ctx, "", 1)
+			if err := f.a.TriageEvent(ctx, eb[0].ID, StatusFalsePositive, "not mine"); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("A triaged B's event: %v", err)
+			}
+			if eb2, _ := f.b.ListEvents(ctx, "", 1); eb2[0].Status != StatusOpen || eb2[0].TriageNote != "" {
+				t.Fatalf("B's event changed: %+v", eb2[0])
+			}
+		},
 		"DeleteSink": func(t *testing.T, f fixture) {
 			if err := f.a.DeleteSink(ctx, "sink_tok_b"); !errors.Is(err, ErrNotFound) {
 				t.Fatalf("A deleted B's sink: %v", err)

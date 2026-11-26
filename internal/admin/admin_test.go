@@ -29,6 +29,7 @@ type tenantFix struct {
 	id, admin, viewer, revoked  string
 	tokID, label, sinkID, keyID string
 	deliveryID                  string // a dead delivery to sinkID
+	eventID                     string // the hit on tokID
 }
 
 type env struct {
@@ -74,9 +75,11 @@ func newEnv(t *testing.T) *env {
 		var m MintResponse
 		e.call("POST", "/api/tokens", f.admin, "", MintRequest{Kind: "canary_url", Label: f.label}, 201, &m)
 		f.tokID = m.ID
-		if _, _, _, _, err := st.RecordHit(ctx, store.Event{TokenID: m.ID, Channel: "http", SourceIP: "203.0.113.2", At: time.Now()}, true); err != nil {
+		_, ev, _, _, err := st.RecordHit(ctx, store.Event{TokenID: m.ID, Channel: "http", SourceIP: "203.0.113.2", At: time.Now()}, true)
+		if err != nil {
 			t.Fatal(err)
 		}
+		f.eventID = strconv.FormatInt(ev.ID, 10)
 		var s sinkView
 		e.call("POST", "/api/sinks", f.admin, "", alert.SinkConfig{Type: "webhook", URL: hook.URL, Secret: "webhook-secret-" + name}, 201, &s)
 		f.sinkID = s.ID
@@ -202,6 +205,9 @@ func TestAPITenantIsolationMatrix(t *testing.T) {
 						if strings.HasPrefix(path, "/api/deliveries/") {
 							id = tg.f.deliveryID
 						}
+						if strings.HasPrefix(path, "/api/events/") {
+							id = tg.f.eventID
+						}
 						p = strings.Replace(path, "{id}", id, 1)
 					}
 					code, body := e.do(method, p, c.key, c.hdr, bodyFor(rt.Pattern))
@@ -236,6 +242,8 @@ func bodyFor(pattern string) any {
 		return MintRequest{Kind: "canary_doc", Label: "new"}
 	case "POST /api/sinks":
 		return alert.SinkConfig{Type: "splunk_hec", URL: "https://8.8.8.8", Token: "hec"}
+	case "POST /api/events/{id}/triage":
+		return TriageRequest{Status: store.StatusAcknowledged, Note: "looking"}
 	}
 	return nil
 }
@@ -251,6 +259,9 @@ var success = map[string]int{
 	"POST /api/sinks":                 201,
 	"DELETE /api/sinks/{id}":          204,
 	"POST /api/sinks/{id}/test":       200,
+	"POST /api/tokens/{id}/disable":   204,
+	"POST /api/tokens/{id}/enable":    204,
+	"POST /api/events/{id}/triage":    204,
 	"GET /api/audit":                  200,
 	"GET /api/deliveries":             200,
 	"POST /api/deliveries/{id}/retry": 204,
