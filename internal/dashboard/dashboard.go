@@ -258,7 +258,14 @@ func (d *Dashboard) render(w http.ResponseWriter, name string, data any) {
 type eventRow struct {
 	store.Event
 	Label string
+	// Distinct tripwires this source touched within the correlation window, as the alert
+	// computed it (docs/M4c-reliability.md §3). 2 or more is a Critical alert.
+	Correlated int
 }
+
+// correlationWindow matches alert.DefaultCorrelationWindow; the dashboard doesn't import the
+// alert package.
+const correlationWindow = time.Hour
 
 func (d *Dashboard) overview(w http.ResponseWriter, r *http.Request, s session) {
 	v := d.Store.Tenant(s.TenantID)
@@ -278,12 +285,27 @@ func (d *Dashboard) overview(w http.ResponseWriter, r *http.Request, s session) 
 	}
 	rows := make([]eventRow, 0, len(evs))
 	touched := map[string]bool{}
+	critical := 0
 	for _, e := range evs {
-		rows = append(rows, eventRow{Event: e, Label: labels[e.TokenID]})
+		_, n, err := v.RelatedTouches(r.Context(), e, correlationWindow, 0)
+		if err != nil {
+			d.fail(w, err)
+			return
+		}
+		if n >= 2 {
+			critical++
+		}
+		rows = append(rows, eventRow{Event: e, Label: labels[e.TokenID], Correlated: n})
 		touched[e.TokenID] = true
+	}
+	dead, err := v.ListDeliveries(r.Context(), store.DeliveryDead, 100)
+	if err != nil {
+		d.fail(w, err)
+		return
 	}
 	d.render(w, "overview.html", map[string]any{
 		"S": s, "Tokens": toks, "Events": rows, "Touched": touched, "TouchedCount": len(touched),
+		"Critical": critical, "Dead": len(dead),
 	})
 }
 
@@ -312,7 +334,12 @@ func (d *Dashboard) sinksPage(w http.ResponseWriter, r *http.Request, s session)
 		d.fail(w, err)
 		return
 	}
-	d.render(w, "sinks.html", map[string]any{"S": s, "Sinks": recs})
+	ds, err := d.Store.Tenant(s.TenantID).ListDeliveries(r.Context(), "", 50)
+	if err != nil {
+		d.fail(w, err)
+		return
+	}
+	d.render(w, "sinks.html", map[string]any{"S": s, "Sinks": recs, "Deliveries": ds})
 }
 
 func (d *Dashboard) fail(w http.ResponseWriter, err error) {

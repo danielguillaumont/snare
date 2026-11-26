@@ -7,5 +7,15 @@
     <thead><tr><th>ID</th><th>Type</th><th>Created (UTC)</th></tr></thead>
     <tbody>{{range .Sinks}}<tr><td><code>{{.ID}}</code></td><td>{{.Type}}</td><td>{{ts .CreatedAt}}</td></tr>{{else}}<tr><td colspan="3" class="muted">No tenant sinks. Alerts still go to the operator's sinks.</td></tr>{{end}}</tbody>
   </table>
+  <h2>Recent deliveries</h2>
+  <p class="muted">Each alert is retried per sink for about 3 hours. An <b>undelivered</b> alert gave up: fix the sink, then requeue it with <code>snare deliveries -retry ID</code>.</p>
+  <table>
+    <thead><tr><th>ID</th><th>Sink</th><th>State</th><th>Attempts</th><th>Updated (UTC)</th><th>Last error</th></tr></thead>
+    <tbody>{{range .Deliveries}}<tr{{if eq .State "dead"}} class="hit"{{end}}>
+      <td><code>{{.ID}}</code></td><td><code>{{.SinkRef}}</code></td>
+      <td>{{if eq .State "dead"}}<span class="tag crit">undelivered</span>{{else if eq .State "pending"}}<span class="tag">retrying</span>{{else}}<span class="tag">delivered</span>{{end}}</td>
+      <td>{{.Attempts}}</td><td>{{ts .UpdatedAt}}</td><td class="detail">{{.LastError}}</td>
+    </tr>{{else}}<tr><td colspan="6" class="muted">No deliveries to your sinks yet.</td></tr>{{end}}</tbody>
+  </table>
 </main>
 {{template "foot"}}

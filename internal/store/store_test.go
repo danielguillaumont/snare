@@ -213,6 +213,32 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				t.Fatalf("A can't retry its own: %v", err)
 			}
 		},
+		"RelatedTouches": func(t *testing.T, f fixture) {
+			// Both fixture events come from 203.0.113.9; each tenant sees only its own.
+			eb, _ := f.b.ListEvents(ctx, "", 1)
+			if _, _, err := f.a.RelatedTouches(ctx, eb[0], time.Hour, 10); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("A correlated B's event: %v", err)
+			}
+			forged := eb[0]
+			forged.TenantID = f.a.TenantID() // claim B's event is A's
+			rel, _, err := f.a.RelatedTouches(ctx, forged, time.Hour, 10)
+			for _, r := range rel {
+				if r.TokenID == "tok_b" || strings.Contains(r.Label, "tok_b") {
+					t.Fatalf("forged event exposed B's touch: %+v", r)
+				}
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Another A touch from the same source sees A's earlier one, never B's.
+			_ = f.a.CreateToken(ctx, Token{ID: "tok_a2", Kind: "x", Label: "second"})
+			var n int
+			_, ev, _, _, _ := f.s.RecordHit(ctx, Event{TokenID: "tok_a2", Channel: "http", SourceIP: "203.0.113.9", At: time.Now()}, false)
+			rel, n, err = f.a.RelatedTouches(ctx, ev, time.Hour, 10)
+			if err != nil || n != 2 || len(rel) != 1 || rel[0].TokenID != "tok_a" {
+				t.Fatalf("A's own correlation: %d %+v %v", n, rel, err)
+			}
+		},
 		"DeleteSink": func(t *testing.T, f fixture) {
 			if err := f.a.DeleteSink(ctx, "sink_tok_b"); !errors.Is(err, ErrNotFound) {
 				t.Fatalf("A deleted B's sink: %v", err)
