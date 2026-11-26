@@ -121,4 +121,19 @@ so far.
 ## Changelog
 
 - 2026-11-25: design, arms, metrics, criteria A1–A3, prediction for C and budget registered
-  before any adapter code or run.
+  before any adapter code or run (commit b852a59).
+- 2026-11-25, after the pilot and before the main run: **sample fixed.**
+  - **Pilot:** 23 runs per model (workspace and slack, first 2 user tasks, 1 user task per
+    injection; `results/m3c/pilot-*`, excluded from results). Cost per run was about $0.001
+    on Haiku and $0.016 on Sonnet, for $0.39 in total. No errors and no trips. ASR was 0/19 on
+    both models, so C may end up with a small denominator. The protocol already reports C
+    whatever its n.
+  - **Lint (A3):** no errors. Dropped per suite for sharing a name word with a real tool under
+    some install name: `bulk_user_export` (banking, slack, travel) and
+    `disable_audit_logging` (travel, workspace). That leaves 15–16 decoys per suite.
+  - **Haiku:** exactly the provisional sample: 949 attack pairs, and 97 user tasks × 2 reps in
+    each of `plain` and `benign` (1,337 runs, seed 97, cap $4).
+  - **Sonnet:** `plain` and `benign` once per user task, and `attack` with 4 user tasks per
+    injection task, drawn without replacement (194 + 140 = 334 runs, seed 98, cap $10).
+  - The main-run caps total $14, as registered. If a run misses a cap, the shuffled order
+    keeps the cut-off unbiased, and the skipped count is reported.
