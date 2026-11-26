@@ -12,8 +12,8 @@ jobs:
   go:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - run: go vet ./...
@@ -23,8 +23,8 @@ jobs:
     # Reports only vulnerabilities in code paths Snare actually calls.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
@@ -41,13 +41,13 @@ jobs:
           - { pkg: ./internal/listener, fn: FuzzHTTP }
           - { pkg: ./internal/listener, fn: FuzzDNS }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - run: go test ${{ matrix.target.pkg }} -run '^$' -fuzz '^${{ matrix.target.fn }}$' -fuzztime 45s
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-crashers-${{ matrix.target.fn }}
           path: "**/testdata/fuzz/**"
@@ -57,8 +57,8 @@ jobs:
     # mint -> touch -> event, OCSF export, cross-tenant denial.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - run: shellcheck -S warning scripts/*.sh
@@ -78,8 +78,8 @@ jobs:
     # no emulation is needed for arm64.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
       - run: docker buildx build --platform linux/amd64,linux/arm64 -t snare:ci .
       - name: runs as non-root, binary only
         run: |
@@ -93,8 +93,8 @@ jobs:
       run:
         working-directory: deploy/terraform
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_wrapper: false
       - run: terraform fmt -check -recursive -diff
@@ -107,8 +107,8 @@ jobs:
       run:
         working-directory: experiments/killtest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
@@ -126,8 +126,8 @@ jobs:
       run:
         working-directory: experiments/killtest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev,agentdojo]"
