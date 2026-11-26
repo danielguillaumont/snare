@@ -46,13 +46,13 @@ func (d *DNS) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 		return
 	}
 
-	if id, ok := d.Signer.Find(name); ok {
+	if m, ok := d.Signer.Match(name); ok {
 		src := ""
 		if host, _, err := net.SplitHostPort(w.RemoteAddr().String()); err == nil {
 			src = host
 		}
 		detail := name + " " + dns.TypeToString[q.Qtype] + " (source is the resolver)"
-		if err := d.Recorder.Hit(context.Background(), id, "dns", src, detail); err != nil {
+		if err := d.Recorder.Hit(context.Background(), m, "dns", src, detail); err != nil {
 			d.Log.Error("record dns hit", "err", err)
 		}
 	}

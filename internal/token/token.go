@@ -14,7 +14,11 @@
 // tripwires planted before v2 keep working. New tokens are always v2.
 //
 // Listeners verify the MAC before any database work, so scanner noise and forged tokens cost
-// almost nothing. Find caps MAC attempts per input to keep junk traffic cheap.
+// almost nothing. Find caps MAC computations per input to keep junk traffic cheap.
+//
+// Key rotation (docs/M4c-reliability.md §5): a signer mints with its current key and also
+// verifies with up to MaxPreviousKeys retired ones, so rotating the key doesn't silence every
+// planted tripwire. Each key costs one MAC per candidate, out of the same per-input budget.
 package token
 
 import (
@@ -36,8 +40,10 @@ const (
 	MinKeyBytes = 32
 	// MaxPrefix is the longest allowed per-install prefix.
 	MaxPrefix = 12
-	// maxAttempts caps MAC checks per Find call.
+	// maxAttempts caps MAC computations per Find call, across all keys.
 	maxAttempts = 256
+	// MaxPreviousKeys bounds how many retired keys still verify.
+	MaxPreviousKeys = 3
 
 	v1Prefix = "snr"
 	v1Length = len(v1Prefix) + 32
@@ -76,6 +82,7 @@ var (
 	ErrShortKey  = fmt.Errorf("token: key must be at least %d bytes", MinKeyBytes)
 	ErrPrefix    = fmt.Errorf("token: prefix must be 1-%d chars of [a-z0-9-], start with a letter or digit, and not resemble a real provider's key prefix", MaxPrefix)
 	ErrEncoding  = errors.New("token: encoding must be b32 or hex")
+	ErrPrevious  = fmt.Errorf("token: at most %d previous keys, each at least %d bytes and different from the current key", MaxPreviousKeys, MinKeyBytes)
 )
 
 // ValidatePrefix reports whether p may be used as a per-install token prefix.
@@ -94,12 +101,41 @@ func ValidatePrefix(p string) error {
 	return nil
 }
 
-// Signer mints and verifies tokens with one server key.
+// Signer mints tokens with its current key and verifies with that key and any previous ones.
 type Signer struct {
 	key      []byte
+	previous [][]byte
 	prefix   string
 	encoding Encoding
 }
+
+// Match is a verified token found in untrusted input.
+type Match struct {
+	ID string
+	// PreviousKey is true when the token verified under a retired key: the tripwire works,
+	// but should be replanted before that key is dropped.
+	PreviousKey bool
+}
+
+// WithPrevious returns a copy of s that also verifies tokens minted under the given retired
+// keys. New tokens still use the current key.
+func (s *Signer) WithPrevious(keys ...[]byte) (*Signer, error) {
+	if len(keys) > MaxPreviousKeys {
+		return nil, ErrPrevious
+	}
+	c := *s
+	c.previous = nil
+	for _, k := range keys {
+		if len(k) < MinKeyBytes || hmac.Equal(k, s.key) {
+			return nil, ErrPrevious
+		}
+		c.previous = append(c.previous, append([]byte(nil), k...))
+	}
+	return &c, nil
+}
+
+// keys returns the current key first, then the previous ones.
+func (s *Signer) keys() [][]byte { return append([][]byte{s.key}, s.previous...) }
 
 // NewSigner returns a signer that mints v2 tokens: no prefix, base32.
 func NewSigner(key []byte) (*Signer, error) {
@@ -129,8 +165,10 @@ func (s *Signer) WithFormat(prefix string, encoding Encoding) (*Signer, error) {
 	return &c, nil
 }
 
-func (s *Signer) mac(domain string, id []byte) []byte {
-	m := hmac.New(sha256.New, s.key)
+func (s *Signer) mac(domain string, id []byte) []byte { return macWith(s.key, domain, id) }
+
+func macWith(key []byte, domain string, id []byte) []byte {
+	m := hmac.New(sha256.New, key)
 	m.Write([]byte(domain))
 	m.Write(id)
 	return m.Sum(nil)[:macBytes]
@@ -154,8 +192,15 @@ func (s *Signer) Mint() (tok string, id string, err error) {
 	return s.prefix + enc, idString(raw), nil
 }
 
-// verifyBody checks a bare v2 body (no prefix).
+// verifyBody checks a bare v2 body (no prefix) under the current key only.
 func (s *Signer) verifyBody(body string) (string, error) {
+	m, _, err := s.verifyBodyKeys(body, 1)
+	return m.ID, err
+}
+
+// verifyBodyKeys checks a bare v2 body under up to maxKeys keys, current first, and returns
+// how many MACs it computed.
+func (s *Signer) verifyBodyKeys(body string, maxKeys int) (Match, int, error) {
 	var raw []byte
 	var err error
 	switch len(body) {
@@ -164,79 +209,108 @@ func (s *Signer) verifyBody(body string) (string, error) {
 	case hexLen:
 		raw, err = hex.DecodeString(body)
 	default:
-		return "", ErrMalformed
+		return Match{}, 0, ErrMalformed
 	}
 	if err != nil || len(raw) != idBytes+macBytes {
-		return "", ErrMalformed
+		return Match{}, 0, ErrMalformed
 	}
-	id, got := raw[:idBytes], raw[idBytes:]
-	if !hmac.Equal(got, s.mac(v2Domain, id)) {
-		return "", ErrBadMAC
-	}
-	return idString(id), nil
+	return s.check(v2Domain, raw[:idBytes], raw[idBytes:], maxKeys)
 }
 
 func (s *Signer) verifyV1(tok string) (string, error) {
+	m, _, err := s.verifyV1Keys(tok, 1)
+	return m.ID, err
+}
+
+func (s *Signer) verifyV1Keys(tok string, maxKeys int) (Match, int, error) {
 	if len(tok) != v1Length || !strings.HasPrefix(tok, v1Prefix) {
-		return "", ErrMalformed
+		return Match{}, 0, ErrMalformed
 	}
 	id, err := b32.DecodeString(strings.ToUpper(tok[3:19]))
 	if err != nil || len(id) != idBytes {
-		return "", ErrMalformed
+		return Match{}, 0, ErrMalformed
 	}
 	got, err := b32.DecodeString(strings.ToUpper(tok[19:]))
 	if err != nil || len(got) != macBytes {
-		return "", ErrMalformed
+		return Match{}, 0, ErrMalformed
 	}
-	if !hmac.Equal(got, s.mac(v1Domain, id)) {
-		return "", ErrBadMAC
-	}
-	return idString(id), nil
+	return s.check(v1Domain, id, got, maxKeys)
 }
 
-// Verify checks a whole token (v2 with or without this signer's prefix, or v1) and returns
-// its ID. MAC comparison is constant-time.
+// check compares got against the MAC under each key in turn (current first), at most maxKeys
+// of them, constant-time per comparison. It returns the MACs computed.
+func (s *Signer) check(domain string, id, got []byte, maxKeys int) (Match, int, error) {
+	n := 0
+	for i, k := range s.keys() {
+		if i >= maxKeys {
+			break
+		}
+		n++
+		if hmac.Equal(got, macWith(k, domain, id)) {
+			return Match{ID: idString(id), PreviousKey: i > 0}, n, nil
+		}
+	}
+	return Match{}, n, ErrBadMAC
+}
+
+// Verify checks a whole token (v2 with or without this signer's prefix, or v1) under every
+// key and returns its ID. MAC comparison is constant-time.
 func (s *Signer) Verify(tok string) (string, error) {
 	tok = strings.ToLower(tok)
-	id, v1err := s.verifyV1(tok)
+	all := len(s.previous) + 1
+	m, _, v1err := s.verifyV1Keys(tok, all)
 	if v1err == nil {
-		return id, nil
+		return m.ID, nil
 	}
 	body := tok
 	if s.prefix != "" {
 		body = strings.TrimPrefix(tok, s.prefix)
 	}
-	id, err := s.verifyBody(body)
+	m, _, err := s.verifyBodyKeys(body, all)
 	if err == ErrMalformed && v1err != ErrMalformed {
 		return "", v1err // v1-shaped: report its real failure (bad MAC)
 	}
-	return id, err
+	return m.ID, err
 }
 
 // Find returns the ID of the first valid token embedded anywhere in text (host, path, query
 // name), whatever its prefix. Forged candidates are skipped, so they can't mask a real token.
 func (s *Signer) Find(text string) (id string, ok bool) {
-	id, ok, _ = s.find(text)
-	return id, ok
+	m, ok, _ := s.find(text)
+	return m.ID, ok
 }
 
-// find is Find plus the number of MAC checks spent, so tests can hold the cap.
-func (s *Signer) find(text string) (id string, ok bool, attempts int) {
+// Match is Find, also reporting whether a previous key verified the token.
+func (s *Signer) Match(text string) (Match, bool) {
+	m, ok, _ := s.find(text)
+	return m, ok
+}
+
+// find is Match plus the number of MAC computations spent, so tests can hold the cap. Each
+// candidate costs one MAC per key. When the budget can't cover every key for a candidate,
+// it is checked against as many as fit, current key first.
+func (s *Signer) find(text string) (m Match, ok bool, attempts int) {
 	text = strings.ToLower(text)
-	try := func(f func() (string, error)) bool {
-		attempts++
-		if v, err := f(); err == nil {
-			id = v
+	nkeys := len(s.previous) + 1
+	try := func(f func(maxKeys int) (Match, int, error)) bool {
+		budget := maxAttempts - attempts
+		if budget > nkeys {
+			budget = nkeys
+		}
+		got, n, err := f(budget)
+		attempts += n
+		if err == nil {
+			m = got
 			return true
 		}
 		return false
 	}
 	for _, c := range v1Candidate.FindAllString(text, 8) {
 		if attempts >= maxAttempts {
-			return "", false, attempts
+			return Match{}, false, attempts
 		}
-		if try(func() (string, error) { return s.verifyV1(c) }) {
-			return id, true, attempts
+		if try(func(k int) (Match, int, error) { return s.verifyV1Keys(c, k) }) {
+			return m, true, attempts
 		}
 	}
 	for _, scan := range []struct {
@@ -246,14 +320,14 @@ func (s *Signer) find(text string) (id string, ok bool, attempts int) {
 		for _, run := range scan.re.FindAllString(text, 16) {
 			for off := 0; off+scan.n <= len(run); off++ {
 				if attempts >= maxAttempts {
-					return "", false, attempts
+					return Match{}, false, attempts
 				}
 				w := run[off : off+scan.n]
-				if try(func() (string, error) { return s.verifyBody(w) }) {
-					return id, true, attempts
+				if try(func(k int) (Match, int, error) { return s.verifyBodyKeys(w, k) }) {
+					return m, true, attempts
 				}
 			}
 		}
 	}
-	return "", false, attempts
+	return Match{}, false, attempts
 }

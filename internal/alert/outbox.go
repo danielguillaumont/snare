@@ -11,6 +11,7 @@ import (
 
 	"github.com/danielguillaumont/snare/internal/metrics"
 	"github.com/danielguillaumont/snare/internal/store"
+	"github.com/danielguillaumont/snare/internal/token"
 )
 
 // Target is one destination. Ref is stable across restarts: "op:<name>" for operator sinks,
@@ -427,7 +428,8 @@ type Pipeline struct {
 
 // Hit is called by listeners after a token's signature has been verified. Every hit is
 // stored; an alert is queued unless an identical one went out within the dedup window.
-func (p *Pipeline) Hit(ctx context.Context, tokenID, channel, sourceIP, detail string) error {
+func (p *Pipeline) Hit(ctx context.Context, tm token.Match, channel, sourceIP, detail string) error {
+	tokenID := tm.ID
 	now := time.Now
 	if p.Now != nil {
 		now = p.Now
@@ -441,6 +443,7 @@ func (p *Pipeline) Hit(ctx context.Context, tokenID, channel, sourceIP, detail s
 	alert := p.Dedup.Allow(tokenID+"|"+channel+"|"+sourceIP, at)
 	_, _, _, queued, err := p.Store.RecordHit(ctx, store.Event{
 		TokenID: tokenID, Channel: channel, SourceIP: sourceIP, Detail: truncate(detail, 512), At: at,
+		PreviousKey: tm.PreviousKey,
 	}, alert)
 	if err != nil {
 		return fmt.Errorf("record event: %w", err)

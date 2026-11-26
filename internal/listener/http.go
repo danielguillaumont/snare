@@ -18,7 +18,7 @@ import (
 
 // Recorder is the part of the alert pipeline listeners need.
 type Recorder interface {
-	Hit(ctx context.Context, tokenID, channel, sourceIP, detail string) error
+	Hit(ctx context.Context, m token.Match, channel, sourceIP, detail string) error
 }
 
 // HTTP answers every request blandly and records any that carry a valid token in the
@@ -98,9 +98,9 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	detail := r.Method + " " + r.URL.Path + " ua=" + r.UserAgent()
-	urlID, urlHit := h.Signer.Find(r.Host + " " + r.URL.Path + "?" + r.URL.RawQuery)
+	urlM, urlHit := h.Signer.Match(r.Host + " " + r.URL.Path + "?" + r.URL.RawQuery)
 	if urlHit {
-		if err := h.Recorder.Hit(r.Context(), urlID, "http", ip, detail); err != nil {
+		if err := h.Recorder.Hit(r.Context(), urlM, "http", ip, detail); err != nil {
 			h.Log.Error("record http hit", "err", err)
 		}
 	}
@@ -108,8 +108,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// URL. Record it as its own hit so the alert says which value was used. Only the fact
 	// that a token arrived in a header is stored, never the header itself.
 	creds := r.Header.Get("Authorization") + " " + r.Header.Get("X-Api-Key") + " " + r.Header.Get("Api-Key")
-	if id, ok := h.Signer.Find(creds); ok && (!urlHit || id != urlID) {
-		if err := h.Recorder.Hit(r.Context(), id, "http", ip, detail+" via=credential-header"); err != nil {
+	if m, ok := h.Signer.Match(creds); ok && (!urlHit || m.ID != urlM.ID) {
+		if err := h.Recorder.Hit(r.Context(), m, "http", ip, detail+" via=credential-header"); err != nil {
 			h.Log.Error("record http hit", "err", err)
 		}
 	}

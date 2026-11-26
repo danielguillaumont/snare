@@ -76,7 +76,15 @@ M4's "deployed with IaC" criterion is met when `smoke.sh` passes against a stack
 - **Backups:** DLM takes daily snapshots of the data volume (14 kept by default). The volume
   has `prevent_destroy`, so `terraform destroy` stops at the data on purpose.
 - **Key rotation:** deliberately manual.
-  - Rotating `SNARE_KEY` invalidates every minted token.
+  - `SNARE_KEY`: since M4c, rotation doesn't silence planted tripwires.
+    1. Store the current value as `SNARE_KEY_PREVIOUS` (comma-separated; at most 3).
+    2. Store a new `SNARE_KEY` and replace the instance.
+    3. Old tokens keep alerting, flagged `verified_by_previous_key`. Replant those tripwires
+       (`snare plant` mints under the new key).
+    4. Drop the old value from `SNARE_KEY_PREVIOUS` once its alerts stop. Tokens under a
+       dropped key are ignored like any other noise.
+    5. Rotation also signs everyone out of the dashboard: sessions are derived from the
+       current key.
   - Rotating `SNARE_SEAL_KEY` requires re-creating every tenant sink.
   - `SNARE_ADMIN_KEY` can rotate freely. Secrets are read at boot, so update the parameter
     and then run `terraform apply -replace=aws_instance.snare`.

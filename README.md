@@ -101,6 +101,7 @@ go test ./...       # includes end-to-end tests: plant -> touch -> alert, two-te
 | M3a/b/c detection eval, anti-fingerprinting, decoy screen, AgentDojo | ✅ Published, including the partial results |
 | M4 multi-tenant service, OCSF/SIEM sinks, dashboard, IaC | 🟡 Built and tested; IaC not yet applied |
 | M4b hardening: supply chain, fuzzing, audit log, placement advisor, Slack | ✅ Built |
+| M4c reliability: durable alert outbox, metrics, correlation, SIEM rules, key rotation | ✅ Built |
 | M5 design partners | Not started |
 
 Full plan and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).
@@ -115,6 +116,7 @@ Full plan and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).
 | [docs/killtest.md](docs/killtest.md) | Pre-registered protocol and go / iterate / kill thresholds |
 | [experiments/killtest/](experiments/killtest/) | The kill-test harness (Python, Claude API) |
 | [cmd/snare](cmd/snare), [internal/](internal/) | Go CLI and services: callback server (M1), decoy MCP server and planting (M2), tenancy, sinks and dashboard (M4) |
+| [detections/](detections/) | Splunk, Sentinel, Elastic and Sigma rules for Snare findings, checked in CI |
 | [deploy/](deploy/), [Dockerfile](Dockerfile), [scripts/](scripts/) | M4: Terraform for AWS, Caddy config, secrets bootstrap and the post-deploy smoke test |
 | [examples/](examples/) | Sample repo and RAG corpus used as planting targets in tests |
 | [CLAUDE.md](CLAUDE.md) | Working rules for Claude Code in this repo |
@@ -165,6 +167,19 @@ $env:SNARE_ADMIN_KEY = "snk_..."; bin\snare.exe mint -kind canary_url -label "ru
 A tenant adds its own SIEM or chat with `POST /api/sinks` (`splunk_hec`, `elastic`, `sentinel`,
 `slack` or `webhook`), and `GET /api/events/export` streams its findings as OCSF NDJSON. Deployment is in
 [deploy/README.md](deploy/README.md).
+
+**Alerts don't get lost.**
+- Each alert is queued in a durable outbox in the same transaction as the event.
+- Each destination retries for about 3 hours, and queued alerts survive restarts.
+- A delivery that gives up is kept and counted. `snare deliveries -state dead` lists them,
+  and `-retry ID` requeues one.
+- `GET /metrics` (operator key) exports Prometheus metrics. Alert rules are in
+  [deploy/prometheus](deploy/prometheus/snare-rules.yml).
+- When one source touches two or more tripwires within an hour, the alert becomes
+  **Critical** and lists the others.
+- Ready-made rules for Splunk, Sentinel, Elastic and Sigma are in [detections/](detections/).
+  CI checks them against the fields Snare emits. Design and evidence:
+  [docs/M4c-reliability.md](docs/M4c-reliability.md).
 
 ## Planting tripwires (M2)
 
