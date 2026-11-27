@@ -100,6 +100,8 @@ func main() {
 		err = gatewayCmd(os.Args[2:])
 	case "decoys":
 		err = decoysCmd(os.Args[2:])
+	case "init":
+		err = initCmd(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -113,6 +115,7 @@ func main() {
 func usage() {
 	fmt.Fprint(os.Stderr, `usage:
   snare version
+  snare init [-client F] [-servers a,b] [-dir D] [-profile P] [-apply] | -undo [-client F]
   snare demo [-http ADDR] [-admin ADDR] [-dashboard ADDR]
   snare keygen
   snare serve

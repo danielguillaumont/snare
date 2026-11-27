@@ -94,6 +94,11 @@ go run ./cmd/snare demo     # starts Snare, plants 3 tripwires, sets two off, pr
 go test ./...               # includes end-to-end tests: plant -> touch -> alert, two-tenant isolation
 ```
 
+**On your own agent.** With a server running (`snare serve`) and `SNARE_ADMIN_URL` /
+`SNARE_ADMIN_KEY` set, `snare init` reads your MCP client config and prints a plan. `snare
+init -apply` then puts the chosen servers behind the gateway, checks the alert path with a
+heartbeat, and prints layer coverage ([INTEGRATIONS](docs/INTEGRATIONS.md#the-short-way-snare-init)).
+
 In the demo, a simulated agent follows a canary link and then uses a honey API key. Two
 tripwires from one source make the second touch **Critical**. From another terminal,
 `snare events` lists the touches and `snare triage` records what each turned out to be.

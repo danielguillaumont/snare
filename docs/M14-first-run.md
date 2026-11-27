@@ -140,9 +140,13 @@ exit, as in today's demo.
 
 | Item | Status | Evidence |
 |---|---|---|
-| `snare init` | Not started | |
+| `snare init` | Done | `cmd/snare/init_test.go` `TestInitEndToEnd` (real server; dry run, apply, second apply, undo, a commented file left alone), `TestInitLivenessFailureIsReported`; `internal/clientcfg` tests (order, unknown fields, `&` unescaped, refusal cases) |
 | `snare demo -attack` | Not started | |
 
 ## Changelog
 
 - 2026-11-27: design.
+- 2026-11-27 (`init`): heartbeats are recorded per tenant and channel, not per gateway. The
+  liveness check therefore tags each beat with a fresh session id and waits for the `gateway`
+  channel to show it as the last source. That proves this machine reaches Snare through that
+  config's callback URL, which is what matters.

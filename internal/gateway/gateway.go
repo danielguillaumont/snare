@@ -513,8 +513,9 @@ const DefaultURLPath = "/v1/"
 
 // fire sends a callback carrying tok and the session context, in the background. action
 // is the containment taken ("blocked", "frozen") or empty.
-func (g *Gateway) fire(ctx context.Context, tok, layer, tool, action string) {
-	p := g.Cfg.URLPath
+// touchURL is the callback URL that touches tok, with query q.
+func touchURL(cfg Config, tok string, q url.Values) string {
+	p := cfg.URLPath
 	if p == "" {
 		p = DefaultURLPath
 	}
@@ -522,6 +523,10 @@ func (g *Gateway) fire(ctx context.Context, tok, layer, tool, action string) {
 	if p == "//" {
 		p = "/"
 	}
+	return strings.TrimRight(cfg.CallbackURL, "/") + p + url.PathEscape(tok) + "?" + q.Encode()
+}
+
+func (g *Gateway) fire(ctx context.Context, tok, layer, tool, action string) {
 	q := url.Values{"layer": {layer}, "session": {g.Session}}
 	if layer != layerHeartbeat { // a heartbeat is about the path, not the agent: no tool, no ledger
 		q.Set("tool", contextSafe(tool))
@@ -530,7 +535,7 @@ func (g *Gateway) fire(ctx context.Context, tok, layer, tool, action string) {
 		}
 		g.ledgerParams(q)
 	}
-	u := strings.TrimRight(g.Cfg.CallbackURL, "/") + p + url.PathEscape(tok) + "?" + q.Encode()
+	u := touchURL(g.Cfg, tok, q)
 	g.wg.Add(1)
 	go func() {
 		defer g.wg.Done()
