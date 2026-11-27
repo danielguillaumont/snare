@@ -447,7 +447,7 @@ func (p *Pipeline) Hit(ctx context.Context, tm token.Match, channel, sourceIP, d
 	lc := listener.ContextFrom(ctx)
 	_, ev, _, queued, err := p.Store.RecordHit(ctx, store.Event{
 		TokenID: tokenID, Channel: channel, SourceIP: sourceIP, Detail: truncate(detail, 512), At: at,
-		PreviousKey: tm.PreviousKey, Via: lc.Via, Session: lc.Session,
+		PreviousKey: tm.PreviousKey, Via: lc.Via, Session: lc.Session, Containment: lc.Containment,
 	}, alert)
 	if err != nil {
 		return fmt.Errorf("record event: %w", err)

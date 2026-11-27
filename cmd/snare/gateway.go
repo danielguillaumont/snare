@@ -16,6 +16,9 @@ import (
 //
 //	snare gateway -config gw.json -- npx some-mcp-server --its-flags
 func gatewayCmd(args []string) error {
+	if len(args) > 0 && args[0] == "release" {
+		return gatewayRelease(args[1:])
+	}
 	fs := flag.NewFlagSet("gateway", flag.ExitOnError)
 	config := fs.String("config", "", "gateway config written by snare plant gateway")
 	verbose := fs.Bool("v", false, "log gateway activity to stderr (never tool arguments)")

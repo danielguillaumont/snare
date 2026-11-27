@@ -66,13 +66,16 @@ flowchart LR
    CLI), and survives restarts. Delivery is at least once with a stable `finding_info.uid`,
    and Elastic writes are keyed by it, so retries don't duplicate
    ([M4c](M4c-reliability.md)).
-6. **Respond.** The toucher only ever sees a bland `200 {"status":"ok"}` or an ordinary A
+6. **Contain (opt-in, M8).** With `contain` set in the gateway config, a call carrying a
+   honey value is not forwarded, and the session's later tool calls fail until an admin
+   runs `snare gateway release`, which is audited ([M8](M8-containment.md)).
+7. **Respond.** The toucher only ever sees a bland `200 {"status":"ok"}` or an ordinary A
    record. It learns nothing about Snare.
-7. **Triage.** An analyst records what the touch was: `acknowledged`, `resolved` or
+8. **Triage.** An analyst records what the touch was: `acknowledged`, `resolved` or
    `false_positive` (`snare triage`, `POST /api/events/{id}/triage`). Exported findings carry
    the matching OCSF `status_id`. Repeated false positives on one tripwire mean it is badly
    placed, and its dashboard page says so ([M4e](M4e-lifecycle.md)).
-8. **Retire.** A tripwire that's no longer planted, or that a test leaked, is disabled
+9. **Retire.** A tripwire that's no longer planted, or that a test leaked, is disabled
    (`snare tokens -disable ID`). Its touches are still recorded, marked muted, but no
    alert is sent. Every disable and enable is in the audit log.
 

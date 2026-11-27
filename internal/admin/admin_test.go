@@ -30,6 +30,7 @@ type tenantFix struct {
 	tokID, label, sinkID, keyID string
 	deliveryID                  string // a dead delivery to sinkID
 	eventID                     string // the hit on tokID
+	sessionID                   string // a gateway session with a contained touch
 }
 
 type env struct {
@@ -80,6 +81,12 @@ func newEnv(t *testing.T) *env {
 			t.Fatal(err)
 		}
 		f.eventID = strconv.FormatInt(ev.ID, 10)
+		// A contained gateway touch, so the session-release route has a session to act on.
+		f.sessionID = "s" + strings.ToLower(name)[:4] + "00000001"
+		if _, _, _, _, err := st.RecordHit(ctx, store.Event{TokenID: m.ID, Channel: "http", SourceIP: "203.0.113.2",
+			Session: f.sessionID, Containment: store.ContainBlocked, At: time.Now()}, false); err != nil {
+			t.Fatal(err)
+		}
 		var s sinkView
 		e.call("POST", "/api/sinks", f.admin, "", alert.SinkConfig{Type: "webhook", URL: hook.URL, Secret: "webhook-secret-" + name}, 201, &s)
 		f.sinkID = s.ID
@@ -205,6 +212,9 @@ func TestAPITenantIsolationMatrix(t *testing.T) {
 						if strings.HasPrefix(path, "/api/deliveries/") {
 							id = tg.f.deliveryID
 						}
+						if strings.HasPrefix(path, "/api/sessions/") {
+							id = tg.f.sessionID
+						}
 						if strings.HasPrefix(path, "/api/events/") || strings.HasPrefix(path, "/api/incidents/") {
 							id = tg.f.eventID // the fixture's only event starts its incident
 						}
@@ -246,6 +256,8 @@ func bodyFor(pattern string) any {
 		return TriageRequest{Status: store.StatusAcknowledged, Note: "looking"}
 	case "POST /api/fingerprints":
 		return FingerprintRequest{Salt: "isolation-matrix-salt"}
+	case "POST /api/sessions/{id}/release":
+		return ReleaseRequest{Note: "isolation matrix"}
 	}
 	return nil
 }
@@ -266,6 +278,7 @@ var success = map[string]int{
 	"POST /api/events/{id}/triage":    204,
 	"GET /api/incidents":              200,
 	"GET /api/incidents/{id}":         200,
+	"POST /api/sessions/{id}/release": 200,
 	"POST /api/fingerprints":          200,
 	"GET /api/audit":                  200,
 	"GET /api/deliveries":             200,
@@ -365,15 +378,17 @@ func TestExportIsOCSFNDJSONForOwnTenant(t *testing.T) {
 		t.Fatalf("%d %s", code, body)
 	}
 	lines := bytes.Split(bytes.TrimSpace(body), []byte("\n"))
-	if len(lines) != 1 {
-		t.Fatalf("want 1 finding, got %d: %s", len(lines), body)
+	if len(lines) != 2 { // the fixture's touch and its contained gateway touch
+		t.Fatalf("want 2 findings, got %d: %s", len(lines), body)
 	}
-	var a alert.Alert
-	if err := json.Unmarshal(lines[0], &a); err != nil {
-		t.Fatal(err)
-	}
-	if a.ClassUID != 2004 || a.Metadata.TenantUID != e.a.id || a.Unmapped.TokenID != e.a.tokID || a.Unmapped.Label != e.a.label {
-		t.Fatalf("finding %+v", a)
+	for _, l := range lines {
+		var a alert.Alert
+		if err := json.Unmarshal(l, &a); err != nil {
+			t.Fatal(err)
+		}
+		if a.ClassUID != 2004 || a.Metadata.TenantUID != e.a.id || a.Unmapped.TokenID != e.a.tokID || a.Unmapped.Label != e.a.label {
+			t.Fatalf("finding %+v", a)
+		}
 	}
 	if code, _ := e.do("GET", "/api/events/export?since=yesterday", e.a.viewer, "", nil); code != 400 {
 		t.Fatalf("bad since accepted: %d", code)

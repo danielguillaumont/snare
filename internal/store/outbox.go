@@ -108,15 +108,18 @@ func (s *Store) RecordHit(ctx context.Context, e Event, alert bool) (tok Token, 
 	if len(e.Session) > maxSession {
 		e.Session = e.Session[:maxSession]
 	}
+	if e.Containment != ContainBlocked && e.Containment != ContainFrozen {
+		e.Containment = ""
+	}
 	key := incidentKey(e)
 	if e.IncidentID, err = joinIncident(ctx, tx, e, key); err != nil {
 		return Token{}, Event{}, false, false, err
 	}
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO events (tenant_id, token_id, channel, source_ip, detail, at, prev_key, muted, layer, stage, session_id, incident_key, incident_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO events (tenant_id, token_id, channel, source_ip, detail, at, prev_key, muted, layer, stage, session_id, incident_key, incident_id, containment)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.TenantID, e.TokenID, e.Channel, e.SourceIP, e.Detail, e.At.UnixMilli(), e.PreviousKey, e.Muted,
-		e.Layer, e.Stage, e.Session, key, e.IncidentID)
+		e.Layer, e.Stage, e.Session, key, e.IncidentID, e.Containment)
 	if err != nil {
 		return Token{}, Event{}, false, false, err
 	}

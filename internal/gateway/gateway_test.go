@@ -33,7 +33,9 @@ func newHarness(t *testing.T, cfg Config) *harness {
 	h := &harness{t: t, serverRecv: make(chan []byte, 64), calls: make(chan *http.Request, 16), done: make(chan error, 1)}
 	cb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { h.calls <- r }))
 	t.Cleanup(cb.Close)
-	cfg.CallbackURL = cb.URL
+	if cfg.CallbackURL == "" {
+		cfg.CallbackURL = cb.URL
+	}
 	if cfg.Style == "" {
 		cfg.Style = "catalog"
 	}

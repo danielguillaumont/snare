@@ -247,12 +247,14 @@ func TestHTTPArrivalContext(t *testing.T) {
 	urlTok, _, _ := s.Mint()
 	keyTok, _, _ := s.Mint()
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/v1/"+urlTok+"?layer=use&session=s1", nil))
-	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/v1/"+urlTok+"?layer=tool", nil))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/v1/"+urlTok+"?layer=tool&contain=killed", nil))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/v1/"+urlTok+"?layer=egress&contain=blocked&session=s3", nil))
 	req := httptest.NewRequest("GET", "/v1/"+urlTok+"?layer=egress&session=s2", nil)
 	req.Header.Set("X-Api-Key", keyTok)
 	h.ServeHTTP(httptest.NewRecorder(), req)
 	got := r.all()
-	want := []Context{{Session: "s1"}, {}, {Via: "egress", Session: "s2"}, {Via: "use", Session: "s2"}}
+	want := []Context{{Session: "s1"}, {}, {Via: "egress", Session: "s3", Containment: "blocked"},
+		{Via: "egress", Session: "s2"}, {Via: "use", Session: "s2"}}
 	if len(got) != len(want) {
 		t.Fatalf("hits: %+v", got)
 	}

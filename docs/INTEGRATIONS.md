@@ -97,6 +97,24 @@ fingerprints:
 snare plant gateway -refresh -config gw.json
 ```
 
+**Containment (opt-in, off by default).** With `-contain exfiltration`, the gateway does
+more than report a honey value leaving:
+- it doesn't forward the call that carries it, so the value never reaches the real tool;
+- it freezes the session: every later real tool call fails with a bland error.
+
+`-contain recon` also freezes on a decoy call, which is stricter: a benign decoy call then
+stops the agent. The freeze is kept in `gw.json.frozen`, so restarting the server doesn't
+lift it. Release it, with a note for the audit log, once you've looked:
+
+```sh
+snare plant gateway -config gw.json -contain exfiltration
+snare gateway release -config gw.json -note "INC-142: poisoned ticket removed, key rotated"
+```
+
+The release is recorded through the admin API (an admin key) before the freeze is removed.
+If the Snare server is down, deleting `gw.json.frozen` by hand also releases it, but that
+release is not audited. Design: [M8-containment.md](M8-containment.md).
+
 ## 2. Confirm a tripwire is live without paging anyone
 
 You want to know that a touch reaches Snare and your alerting before an attacker tests it

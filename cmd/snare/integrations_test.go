@@ -25,6 +25,9 @@ var noFlags = map[string]bool{"version": true, "keygen": true, "serve": true}
 // Subcommands whose first argument selects a further subcommand with its own flag set.
 var nested = map[string]bool{"plant": true, "tenant": true}
 
+// Subcommands that run on their own but also have named subcommands.
+var optionalNested = map[string]map[string]bool{"gateway": {"release": true}}
+
 // TestIntegrationGuideCommandsParse keeps docs/INTEGRATIONS.md honest: every snare command
 // in its code blocks names a real subcommand, and every flag it passes is one that
 // subcommand's FlagSet defines (read from its -h output, not from a hand-kept list).
@@ -55,7 +58,7 @@ func TestIntegrationGuideCommandsParse(t *testing.T) {
 	for _, args := range cmds {
 		sub := args[0]
 		n := 1
-		if nested[sub] {
+		if nested[sub] || len(args) > 1 && optionalNested[sub][args[1]] {
 			n = 2
 		}
 		name := strings.Join(args[:n], " ")

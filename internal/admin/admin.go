@@ -130,6 +130,7 @@ func Routes() []Route {
 		{"POST /api/events/{id}/triage", AccessAdmin, h((*API).triageEvent)},
 		{"GET /api/incidents", AccessViewer, h((*API).listIncidents)},
 		{"GET /api/incidents/{id}", AccessViewer, h((*API).getIncident)},
+		{"POST /api/sessions/{id}/release", AccessAdmin, h((*API).releaseSession)},
 		{"GET /api/sinks", AccessViewer, h((*API).listSinks)},
 		{"POST /api/sinks", AccessAdmin, h((*API).createSink)},
 		{"DELETE /api/sinks/{id}", AccessAdmin, h((*API).deleteSink)},

@@ -72,6 +72,9 @@ type Event struct {
 	IncidentID int64 `json:"incident_id,omitempty"`
 	// Via is input only: "egress" or "use" when the listener saw how the token arrived.
 	Via string `json:"-"`
+	// Containment the gateway took (M8): "blocked" (the call was not forwarded) or
+	// "frozen" (the session was frozen). Empty when none.
+	Containment string `json:"containment,omitempty"`
 }
 
 // Triage statuses.
@@ -195,6 +198,7 @@ var migrations = []struct{ table, column, ddl string }{
 	{"events", "session_id", `ALTER TABLE events ADD COLUMN session_id TEXT NOT NULL DEFAULT ''`},
 	{"events", "incident_key", `ALTER TABLE events ADD COLUMN incident_key TEXT NOT NULL DEFAULT ''`},
 	{"events", "incident_id", `ALTER TABLE events ADD COLUMN incident_id INTEGER NOT NULL DEFAULT 0`},
+	{"events", "containment", `ALTER TABLE events ADD COLUMN containment TEXT NOT NULL DEFAULT ''`},
 }
 
 const indexes = `
@@ -308,6 +312,7 @@ type TenantStore interface {
 	TriageEvent(ctx context.Context, id int64, status, note string) error
 	ListIncidents(ctx context.Context, limit int) ([]Incident, error)
 	GetIncident(ctx context.Context, id int64) (Incident, []Event, error)
+	ReleaseSession(ctx context.Context, session, note string) (int, error)
 }
 
 type tenantView struct {
@@ -380,7 +385,7 @@ func (v *tenantView) ListTokens(ctx context.Context) ([]Token, error) {
 	return out, rows.Err()
 }
 
-const eventCols = `id, tenant_id, token_id, channel, source_ip, detail, at, prev_key, muted, status, triage_note, triaged_at, triaged_by, layer, stage, session_id, incident_id`
+const eventCols = `id, tenant_id, token_id, channel, source_ip, detail, at, prev_key, muted, status, triage_note, triaged_at, triaged_by, layer, stage, session_id, incident_id, containment`
 
 func scanEvents(rows *sql.Rows) ([]Event, error) {
 	defer rows.Close()
@@ -390,7 +395,7 @@ func scanEvents(rows *sql.Rows) ([]Event, error) {
 		var ms int64
 		var triaged sql.NullInt64
 		if err := rows.Scan(&e.ID, &e.TenantID, &e.TokenID, &e.Channel, &e.SourceIP, &e.Detail, &ms, &e.PreviousKey,
-			&e.Muted, &e.Status, &e.TriageNote, &triaged, &e.TriagedBy, &e.Layer, &e.Stage, &e.Session, &e.IncidentID); err != nil {
+			&e.Muted, &e.Status, &e.TriageNote, &triaged, &e.TriagedBy, &e.Layer, &e.Stage, &e.Session, &e.IncidentID, &e.Containment); err != nil {
 			return nil, err
 		}
 		e.At = time.UnixMilli(ms).UTC()

@@ -117,6 +117,8 @@ type Unmapped struct {
 	CorrelatedTouches int      `json:"correlated_touches,omitempty"`
 	// Why the alert is Critical, in words; empty when it is not.
 	CriticalBecause string `json:"critical_because,omitempty"`
+	// Containment the gateway took (docs/M8-containment.md): "blocked" or "frozen".
+	Containment string `json:"containment,omitempty"`
 }
 
 // ProductVersion is reported in metadata.product.version.
@@ -159,7 +161,16 @@ func New(tok store.Token, ev store.Event) Alert {
 			Channel: ev.Channel, Detail: ev.Detail, EventID: ev.ID,
 			CorrelatedTripwires: 1, VerifiedByPreviousKey: ev.PreviousKey,
 			Layer: ev.Layer, Stage: ev.Stage, SessionID: ev.Session, IncidentID: ev.IncidentID,
+			Containment: ev.Containment,
 		},
+	}
+	switch ev.Containment {
+	case store.ContainBlocked:
+		a.FindingInfo.Desc += " The gateway blocked this call, so the value was not sent, and froze the session " +
+			"until an admin releases it (snare gateway release)."
+	case store.ContainFrozen:
+		a.FindingInfo.Desc += " The gateway froze the session: its tool calls fail until an admin releases it " +
+			"(snare gateway release)."
 	}
 	a.setStatus(ev)
 	return a

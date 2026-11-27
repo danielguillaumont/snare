@@ -72,7 +72,7 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	detail := r.Method + " " + r.URL.Path + " ua=" + r.UserAgent() + callbackContext(r)
 	q := r.URL.Query()
-	arrived := arrival(q.Get("layer"), q.Get("session"))
+	arrived := arrival(q.Get("layer"), q.Get("session"), q.Get("contain"))
 	urlM, urlHit := h.Signer.Match(r.Host + " " + r.URL.Path + "?" + r.URL.RawQuery)
 	if urlHit {
 		if err := h.Recorder.Hit(WithContext(r.Context(), arrived), urlM, "http", ip, detail); err != nil {
@@ -96,9 +96,10 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // contextKeys are the query parameters a Snare component may attach to its own callbacks
-// (docs/M6-gateway.md §4): which layer fired, which tool, which agent session. Nothing
-// else from the query is stored.
-var contextKeys = []string{"layer", "tool", "session"}
+// (docs/M6-gateway.md §4): which layer fired, which tool, which agent session, and what
+// containment the gateway took (docs/M8-containment.md). Nothing else from the query is
+// stored.
+var contextKeys = []string{"layer", "tool", "session", "contain"}
 
 // callbackContext renders the allowlisted query parameters as " key=value" pairs, first
 // value only, and only values of 1-64 characters from [A-Za-z0-9._-].

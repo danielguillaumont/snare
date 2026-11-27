@@ -11,6 +11,8 @@ type Context struct {
 	Via string
 	// Session is the gateway session that reported the touch, if any.
 	Session string
+	// Containment the gateway took: "blocked" or "frozen" (M8), or empty.
+	Containment string
 }
 
 type contextKey struct{}
@@ -27,13 +29,16 @@ func ContextFrom(ctx context.Context) Context {
 }
 
 // arrival reads the structured context from an HTTP callback's allowlisted parameters.
-func arrival(layer, session string) Context {
+func arrival(layer, session, contain string) Context {
 	c := Context{}
 	if layer == "egress" {
 		c.Via = "egress"
 	}
 	if contextValue(session) {
 		c.Session = session
+	}
+	if contain == "blocked" || contain == "frozen" {
+		c.Containment = contain
 	}
 	return c
 }
