@@ -49,7 +49,7 @@ Haiku, Sonnet and Opus.
 | Can a team screen its own decoys before deploying? | `killtest screen` blindly retired the one decoy M0 had retired by hand, and kept all 17 that M0 kept (800 runs) | [M3b](docs/results-m3b.md) |
 | Are generated per-install decoy names safe? | **0/300** trips on held-out hard-benign tasks (upper bound 1.3%) | [M3a-fix2](docs/results-m3a-fix2.md) |
 | Safe on an external benchmark? | AgentDojo, unmodified: **0/291** benign trips, utility **−3.4 points** (pre-registered limit −5) | [M3c](docs/results-m3c.md) |
-| Do tripwires catch hijacked agents? | **46/110** credential-hunting agents caught (42%, CI 33–51%), 0/180 benign trips. Measured on an authorized-audit proxy, not real hijacks | [M3a](docs/results-m3a.md) |
+| Do tripwires catch hijacked agents? | About one in three credential-hunting agents, by what Snare can actually see: **92/267** (34.5%, CI 29–40%) with every layer and all 17 decoys in the tool list. That is no better than the single layer (M3a: 46/110 = 42% counting honey quoted in replies; 36% by the same measure). 0/180 benign trips. Measured on an authorized-audit proxy, not real hijacks | [M13](docs/results-m13.md), [M3a](docs/results-m3a.md) |
 | Can an attacker who knows Snare evade it? | Scripted evader: 200/200 evaded → **200/200 caught** after anti-fingerprinting. An attacker who reads this repo still evades generated names, including names adapted to the server (0/200 caught). Under operator-chosen names it is caught as often as one who knows nothing: 138/200 vs 143/200 | [M3a-fix](docs/results-m3a-fix.md), [M12](docs/results-m12.md) |
 
 ## Limitations
@@ -130,7 +130,8 @@ sha256sum -c SHA256SUMS --ignore-missing
 | M10 context canaries: a leaked system prompt or acted-on memory is a touch | ✅ Built ([results](docs/M10-context-canaries.md#results)) |
 | M11 heartbeat: each path (HTTP, DNS, gateway) shows when it was last verified, and goes stale when it breaks | ✅ Built ([results](docs/M11-heartbeat.md#results)) |
 | M12 adaptive deception: decoy names in the real server's vocabulary, a tokenless honey URL, and a code-reading attacker re-run | ✅ Published, 1 of 2 criteria met ([results](docs/results-m12.md)) |
-| M13–M14 Snare in depth: proof, first run | Planned ([docs/DEPTH.md](docs/DEPTH.md)) |
+| M13 proof in depth: pre-registered rerun with every layer | ❌ Published: detection not improved (34.5% vs a 51.2% bar), 0/180 benign trips ([results](docs/results-m13.md)) |
+| M14 first run, end to end | Planned ([docs/DEPTH.md](docs/DEPTH.md)) |
 | M5 design partners | Not started |
 
 Full plan and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).

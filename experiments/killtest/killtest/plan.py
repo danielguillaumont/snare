@@ -24,10 +24,13 @@ ARMS = (*M0_ARMS, *M3_ARMS, *FIX2_ARMS)
 # "adapt" and "adapt-names" (M12, docs/M12-adaptive-deception.md §4) start from "fix": decoy
 # names adapted to each scenario's real tools by the Go code, or the operator's own names, and
 # the key honey layout.
-ENVS = ("m3a", "fix", "screen", "variants", "adapt", "adapt-names")
+# "depth" (M13, docs/M13-proof-in-depth.md §1) is "fix" as the gateway plants it: every catalog
+# decoy in each run, under per-install names from the current generator.
+ENVS = ("m3a", "fix", "screen", "variants", "adapt", "adapt-names", "depth")
 ADAPT_ENVS = ("adapt", "adapt-names")
 FIX_NAMES_FILE = DATA_DIR / "decoy_names_fix.json"
 ADAPT_NAMES_FILE = DATA_DIR / "decoy_names_adapt.json"
+DEPTH_NAMES_FILE = DATA_DIR / "decoy_names_depth.json"
 OPERATOR_NAMES_FILE = DATA_DIR / "operator_names.json"
 POOL_FILES = {"screen": DATA_DIR / "decoy_names_screen.json", "variants": DATA_DIR / "decoy_names_variants.json"}
 B32 = "abcdefghijklmnopqrstuvwxyz234567"
@@ -134,6 +137,10 @@ def load_fix_names(path=FIX_NAMES_FILE) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def load_depth_names(path=DEPTH_NAMES_FILE) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def load_adapt_names(path=ADAPT_NAMES_FILE) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -145,6 +152,8 @@ def load_operator_names(path=OPERATOR_NAMES_FILE) -> dict[str, str]:
 def all_shown_names() -> frozenset[str]:
     """Every decoy name any environment can show, so a fake client can recognize decoys."""
     names = set(load_fix_names()["all_generated"]) | set(load_operator_names().values())
+    for ins in load_depth_names()["installs"]:
+        names |= set(ins["names"].values())
     for sc in load_adapt_names()["scenarios"].values():
         for ins in sc["installs"]:
             names |= set(ins["names"].values())
@@ -189,7 +198,8 @@ def build_plan(
     """runs_per_cell runs for every (arm, model) pair. Scenarios and tasks are cycled evenly."""
     if env not in ENVS:
         raise ValueError(f"unknown env {env!r}")
-    installs = load_fix_names()["installs"] if env == "fix" else []
+    installs = load_fix_names()["installs"] if env == "fix" else load_depth_names()["installs"] if env == "depth" else []
+    per_run = len(catalog.decoy_names) if env == "depth" else DECOYS_PER_RUN
     adapt: dict[str, list[dict]] = {}
     if env == "adapt":
         adapt = {k: v["installs"] for k, v in load_adapt_names()["scenarios"].items()}
@@ -250,7 +260,7 @@ def build_plan(
             "hunt_aware": list(catalog.m3.hunt_tasks) if catalog.m3 else [],
         }[arm]
         for model in models:
-            decoy_sets = balanced_decoy_sets(decoy_names, runs_per_cell, DECOYS_PER_RUN, rng)
+            decoy_sets = balanced_decoy_sets(decoy_names, runs_per_cell, per_run, rng)
             for i in range(runs_per_cell):
                 scenario = catalog.scenarios[scenario_names[i % len(scenario_names)]]
                 task_index = (i // len(scenario_names)) % len(scenario.tasks_for(arm))
@@ -263,7 +273,7 @@ def build_plan(
                 fix: dict = {}
                 if installs:  # extra draws come after the M3a ones, so m3a plans don't change
                     names = installs[i % len(installs)]["names"]
-                    fix = {"env": "fix", "shown": tuple(names[d] for d in decoy_sets[i])}
+                    fix = {"env": env, "shown": tuple(names[d] for d in decoy_sets[i])}
                 elif cycler:
                     fix = {"env": env, "shown": tuple(cycler.next(d) for d in decoy_sets[i])}
                 elif adapt:
