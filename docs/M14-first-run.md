@@ -1,6 +1,6 @@
 # M14 — First run, end to end
 
-**Status: design 2026-11-27. $0: no model calls.**
+**Status: done 2026-11-27. $0: no model calls.**
 
 ## Why now
 
@@ -141,7 +141,7 @@ exit, as in today's demo.
 | Item | Status | Evidence |
 |---|---|---|
 | `snare init` | Done | `cmd/snare/init_test.go` `TestInitEndToEnd` (real server; dry run, apply, second apply, undo, a commented file left alone), `TestInitLivenessFailureIsReported`; `internal/clientcfg` tests (order, unknown fields, `&` unescaped, refusal cases) |
-| `snare demo -attack` | Not started | |
+| `snare demo -attack` | Done | `cmd/snare/demo_attack_test.go` `TestDemoAttack`: five steps printed, and recon + exfiltration stages, the blocked touch and the named ticket all read back from the admin API; the real server never received the email |
 
 ## Changelog
 
@@ -150,3 +150,6 @@ exit, as in today's demo.
   liveness check therefore tags each beat with a fresh session id and waits for the `gateway`
   channel to show it as the last source. That proves this machine reaches Snare through that
   config's callback URL, which is what matters.
+- 2026-11-27 (`demo -attack`): "steered" is the newest input before the incident's first
+  touch, read from the touch's ledger. "Collection" isn't a touch: reading a honey file fires
+  nothing until the value is used. The story says so instead of inventing an event.

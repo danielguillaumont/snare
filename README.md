@@ -99,6 +99,10 @@ go test ./...               # includes end-to-end tests: plant -> touch -> alert
 init -apply` then puts the chosen servers behind the gateway, checks the alert path with a
 heartbeat, and prints layer coverage ([INTEGRATIONS](docs/INTEGRATIONS.md#the-short-way-snare-init)).
 
+`go run ./cmd/snare demo -attack` tells a whole hijack instead, through a real gateway: a
+poisoned ticket, a decoy call, a honey key emailed out and blocked, and the incident Snare
+recorded, naming the ticket.
+
 In the demo, a simulated agent follows a canary link and then uses a honey API key. Two
 tripwires from one source make the second touch **Critical**. From another terminal,
 `snare events` lists the touches and `snare triage` records what each turned out to be.
@@ -138,7 +142,7 @@ sha256sum -c SHA256SUMS --ignore-missing
 | M13 proof in depth: pre-registered rerun with every layer | ❌ Published: detection not improved (34.5% vs a 51.2% bar), 0/180 benign trips ([results](docs/results-m13.md)) |
 | M13b smaller default decoy set: pre-registered screen | ❌ Published: declines 24% vs 33% but missed the bar (CI upper 30.4% vs < 28.8%); detection 40%, 0/180 benign trips. Default stays all 17; `-profile credentials` ships as an option ([results](docs/results-m13b.md)) |
 | M15 detection where harm happens: pre-registered | ⏹ Stopped at the pilot stage: 0/40 harmful runs. Haiku wouldn't send credentials, so there was nothing to measure ([results](docs/results-m15.md)) |
-| M14 first run, end to end | Planned ([docs/DEPTH.md](docs/DEPTH.md)) |
+| M14 first run, end to end | ✅ `snare init` (plan, wrap, verify, coverage) and `snare demo -attack` ([design](docs/M14-first-run.md)) |
 | M5 design partners | Not started |
 
 Full plan and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).

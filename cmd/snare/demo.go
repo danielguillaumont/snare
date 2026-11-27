@@ -25,20 +25,23 @@ func demoCmd(args []string) error {
 	httpAddr := fs.String("http", "127.0.0.1:18080", "callback listener")
 	adminAddr := fs.String("admin", "127.0.0.1:18081", "admin API")
 	dashAddr := fs.String("dashboard", "127.0.0.1:18090", "dashboard")
+	attack := fs.Bool("attack", false, "replay a hijack through a real gateway and print it as an incident story")
 	_ = fs.Parse(args)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return runDemo(ctx, demoOptions{HTTP: *httpAddr, Admin: *adminAddr, Dashboard: *dashAddr}, os.Stdout)
+	return runDemo(ctx, demoOptions{HTTP: *httpAddr, Admin: *adminAddr, Dashboard: *dashAddr, Attack: *attack}, os.Stdout)
 }
 
 type demoOptions struct {
 	HTTP, Admin, Dashboard string
+	Attack                 bool // docs/M14-first-run.md §2
 	// ready, if set, is called with what the demo printed once it is ready (tests).
 	ready func(demoInfo)
 }
 
 type demoInfo struct {
 	Dir, DashboardURL, ViewerKey, AdminURL, AdminKey string
+	Story                                            *attackStory // with Attack
 }
 
 func randBytes(n int) []byte {
@@ -87,6 +90,34 @@ func runDemo(ctx context.Context, o demoOptions, out io.Writer) error {
 		return err
 	}
 	ta := &admin.Client{BaseURL: op.BaseURL, Key: adm.Key}
+	info := demoInfo{Dir: dir, DashboardURL: "http://" + srv.DashboardAddr, ViewerKey: viewer.Key,
+		AdminURL: op.BaseURL, AdminKey: adm.Key}
+	if o.Attack {
+		st, err := runAttack(ctx, ta, dir, out)
+		if err != nil {
+			return fmt.Errorf("attack replay: %w", err)
+		}
+		info.Story = &st
+		fmt.Fprintf(out, `
+Snare demo is running. Nothing leaves this machine and no model is called.
+
+  Dashboard:  %s
+  Sign in with this viewer key:
+    %s
+
+  From another terminal, set SNARE_ADMIN_URL=%s and SNARE_ADMIN_KEY=%s,
+  then run: snare incidents -id %d
+
+  Everything lives in %s and is deleted on exit.
+  Ctrl-C to stop.
+`, info.DashboardURL, info.ViewerKey, info.AdminURL, info.AdminKey, st.IncidentID, dir)
+		if o.ready != nil {
+			o.ready(info)
+		}
+		<-ctx.Done()
+		fmt.Fprintln(out, "\nstopping; demo data deleted")
+		return nil
+	}
 	honey, err := ta.Mint("honey_credential", "billing-svc/.env: PAYMENTS_API_KEY", "")
 	if err != nil {
 		return err
@@ -125,8 +156,6 @@ func runDemo(ctx context.Context, o demoOptions, out io.Writer) error {
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	info := demoInfo{Dir: dir, DashboardURL: "http://" + srv.DashboardAddr, ViewerKey: viewer.Key,
-		AdminURL: op.BaseURL, AdminKey: adm.Key}
 	fmt.Fprintf(out, `
 Snare demo is running. Nothing leaves this machine and no model is called.
 
