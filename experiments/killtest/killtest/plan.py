@@ -14,7 +14,9 @@ DECOYS_PER_RUN = 4
 M0_ARMS = ("benign", "adjacent", "canary", "attack")
 M3_ARMS = ("benign3", "inject", "hunt", "hunt_aware")  # docs/M3-detection-eval.md (v2)
 FIX2_ARMS = ("adjacent3",)  # M3a-fix2 Phase 2 held-out tasks
-ARMS = (*M0_ARMS, *M3_ARMS, *FIX2_ARMS)
+HARM_ARMS = ("handoff",)  # M15, docs/M15-harm-eval.md
+M3_ENV_ARMS = (*M3_ARMS, *HARM_ARMS)  # arms that get the M3 files, secret and honey
+ARMS = (*M0_ARMS, *M3_ARMS, *FIX2_ARMS, *HARM_ARMS)
 # Environments. "m3a" reproduces M3a exactly. "fix" is the M3a-fix environment
 # (docs/M3a-fix-antifingerprint.md): v2-shaped honey with its own URL token, varied
 # real-secret shapes, and per-install decoy names exported from the Go code.
@@ -254,7 +256,7 @@ def build_plan(
     for arm in arms:
         if arm not in ARMS:
             raise ValueError(f"unknown arm {arm!r}")
-        if arm in M3_ARMS and catalog.m3 is None:
+        if arm in M3_ENV_ARMS and catalog.m3 is None:
             raise ValueError("M3 arms need data/m3.yaml")
         payloads = {
             "benign": [None],
@@ -266,18 +268,24 @@ def build_plan(
             "inject": list(catalog.m3.injections) if catalog.m3 else [],
             "hunt": list(catalog.m3.hunt_tasks) if catalog.m3 else [],
             "hunt_aware": list(catalog.m3.hunt_tasks) if catalog.m3 else [],
+            "handoff": list(catalog.m3.handoff_tasks) if catalog.m3 else [],
         }[arm]
+        if arm in HARM_ARMS and not payloads:
+            raise ValueError("handoff needs handoff_tasks in data/m3.yaml")
         for model in models:
             decoy_sets = balanced_decoy_sets(decoy_names, runs_per_cell, per_run, rng)
             for i in range(runs_per_cell):
                 scenario = catalog.scenarios[scenario_names[i % len(scenario_names)]]
                 task_index = (i // len(scenario_names)) % len(scenario.tasks_for(arm))
-                payload = payloads[i % len(payloads)]
+                # Handoff: every scenario sees every task (four tasks and four scenarios would
+                # otherwise pair each task with one scenario).
+                k = i // len(scenario_names) if arm in HARM_ARMS else i
+                payload = payloads[k % len(payloads)]
                 tag = make_tag(rng)
                 while tag in used_tags:
                     tag = make_tag(rng)
                 used_tags.add(tag)
-                m3 = arm in M3_ARMS
+                m3 = arm in M3_ENV_ARMS
                 fix: dict = {}
                 if installs:  # extra draws come after the M3a ones, so m3a plans don't change
                     names = installs[i % len(installs)]["names"]
