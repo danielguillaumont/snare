@@ -17,6 +17,12 @@
       {{if .Stage}}<span class="stage stage-{{.Stage}}">{{.Stage}}</span> <span class="muted">{{.Layer}} layer</span>{{else}}<span class="muted">recorded before stages</span>{{end}}{{if eq .Containment "blocked"}} <span class="tag crit" title="the gateway did not forward this call, and froze the session">blocked · session frozen</span>{{else if eq .Containment "frozen"}} <span class="tag crit" title="the gateway froze the session after this touch">session frozen</span>{{end}}
       <div><a href="/tokens/{{.TokenID}}">{{.Label}}</a> <span class="muted">{{.Kind}} · {{.Channel}} · <code>{{.SourceIP}}</code></span> {{template "status" .Event}}</div>
       <div class="detail">{{.Detail}}</div>
+      {{if .Inputs}}<details class="inputs"><summary>{{len .Inputs}} input{{if ne (len .Inputs) 1}}s{{end}} before this touch</summary>
+        <table><thead><tr><th>Before</th><th>Tool</th><th>Characters</th><th>Fingerprint</th><th>Source</th></tr></thead><tbody>
+        {{range .Inputs}}<tr><td>{{.AgeSeconds}} s</td><td>{{.Tool}}</td><td>{{.Length}}</td><td><code>{{.Fingerprint}}</code></td><td>{{if .Source}}<code>{{.Source}}</code>{{else}}<span class="muted">not sent</span>{{end}}</td></tr>{{end}}
+        </tbody></table>
+        <p class="muted">Oldest first. Find a file by fingerprint with <code>snare provenance find -hash &lt;fingerprint&gt; &lt;dirs&gt;</code>.</p>
+      </details>{{end}}
     </li>{{end}}
   </ol>
 </main>

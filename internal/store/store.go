@@ -14,6 +14,7 @@ import (
 	"database/sql"
 	"encoding/base32"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -75,7 +76,22 @@ type Event struct {
 	// Containment the gateway took (M8): "blocked" (the call was not forwarded) or
 	// "frozen" (the session was frozen). Empty when none.
 	Containment string `json:"containment,omitempty"`
+	// Inputs: what the agent received through the gateway before this touch, oldest
+	// first (M9). Fingerprints and lengths, never content.
+	Inputs []Input `json:"inputs,omitempty"`
 }
+
+// Input is one tool result the gateway saw before a touch (docs/M9-provenance.md).
+type Input struct {
+	Tool        string `json:"tool"`
+	Fingerprint string `json:"fingerprint"` // first 16 hex of SHA-256 of the result text
+	Length      int    `json:"length"`      // characters
+	AgeSeconds  int    `json:"age_seconds"` // before the touch
+	Source      string `json:"source,omitempty"`
+}
+
+// MaxInputs is the most inputs stored with one event: the gateway's ledger size.
+const MaxInputs = 8
 
 // Triage statuses.
 const (
@@ -199,6 +215,7 @@ var migrations = []struct{ table, column, ddl string }{
 	{"events", "incident_key", `ALTER TABLE events ADD COLUMN incident_key TEXT NOT NULL DEFAULT ''`},
 	{"events", "incident_id", `ALTER TABLE events ADD COLUMN incident_id INTEGER NOT NULL DEFAULT 0`},
 	{"events", "containment", `ALTER TABLE events ADD COLUMN containment TEXT NOT NULL DEFAULT ''`},
+	{"events", "inputs", `ALTER TABLE events ADD COLUMN inputs TEXT NOT NULL DEFAULT ''`},
 }
 
 const indexes = `
@@ -385,7 +402,7 @@ func (v *tenantView) ListTokens(ctx context.Context) ([]Token, error) {
 	return out, rows.Err()
 }
 
-const eventCols = `id, tenant_id, token_id, channel, source_ip, detail, at, prev_key, muted, status, triage_note, triaged_at, triaged_by, layer, stage, session_id, incident_id, containment`
+const eventCols = `id, tenant_id, token_id, channel, source_ip, detail, at, prev_key, muted, status, triage_note, triaged_at, triaged_by, layer, stage, session_id, incident_id, containment, inputs`
 
 func scanEvents(rows *sql.Rows) ([]Event, error) {
 	defer rows.Close()
@@ -394,9 +411,13 @@ func scanEvents(rows *sql.Rows) ([]Event, error) {
 		var e Event
 		var ms int64
 		var triaged sql.NullInt64
+		var inputs string
 		if err := rows.Scan(&e.ID, &e.TenantID, &e.TokenID, &e.Channel, &e.SourceIP, &e.Detail, &ms, &e.PreviousKey,
-			&e.Muted, &e.Status, &e.TriageNote, &triaged, &e.TriagedBy, &e.Layer, &e.Stage, &e.Session, &e.IncidentID, &e.Containment); err != nil {
+			&e.Muted, &e.Status, &e.TriageNote, &triaged, &e.TriagedBy, &e.Layer, &e.Stage, &e.Session, &e.IncidentID, &e.Containment, &inputs); err != nil {
 			return nil, err
+		}
+		if inputs != "" {
+			_ = json.Unmarshal([]byte(inputs), &e.Inputs)
 		}
 		e.At = time.UnixMilli(ms).UTC()
 		if triaged.Valid {

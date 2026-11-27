@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -111,15 +112,22 @@ func (s *Store) RecordHit(ctx context.Context, e Event, alert bool) (tok Token, 
 	if e.Containment != ContainBlocked && e.Containment != ContainFrozen {
 		e.Containment = ""
 	}
+	if len(e.Inputs) > MaxInputs {
+		e.Inputs = e.Inputs[len(e.Inputs)-MaxInputs:]
+	}
+	var inputs []byte
+	if len(e.Inputs) > 0 {
+		inputs, _ = json.Marshal(e.Inputs)
+	}
 	key := incidentKey(e)
 	if e.IncidentID, err = joinIncident(ctx, tx, e, key); err != nil {
 		return Token{}, Event{}, false, false, err
 	}
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO events (tenant_id, token_id, channel, source_ip, detail, at, prev_key, muted, layer, stage, session_id, incident_key, incident_id, containment)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO events (tenant_id, token_id, channel, source_ip, detail, at, prev_key, muted, layer, stage, session_id, incident_key, incident_id, containment, inputs)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.TenantID, e.TokenID, e.Channel, e.SourceIP, e.Detail, e.At.UnixMilli(), e.PreviousKey, e.Muted,
-		e.Layer, e.Stage, e.Session, key, e.IncidentID, e.Containment)
+		e.Layer, e.Stage, e.Session, key, e.IncidentID, e.Containment, string(inputs))
 	if err != nil {
 		return Token{}, Event{}, false, false, err
 	}

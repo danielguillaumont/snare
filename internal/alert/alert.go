@@ -8,6 +8,7 @@ package alert
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -119,6 +120,9 @@ type Unmapped struct {
 	CriticalBecause string `json:"critical_because,omitempty"`
 	// Containment the gateway took (docs/M8-containment.md): "blocked" or "frozen".
 	Containment string `json:"containment,omitempty"`
+	// What the agent received through the gateway before this touch, oldest first
+	// (docs/M9-provenance.md). Fingerprints and lengths, never content.
+	Inputs []store.Input `json:"inputs,omitempty"`
 }
 
 // ProductVersion is reported in metadata.product.version.
@@ -161,8 +165,11 @@ func New(tok store.Token, ev store.Event) Alert {
 			Channel: ev.Channel, Detail: ev.Detail, EventID: ev.ID,
 			CorrelatedTripwires: 1, VerifiedByPreviousKey: ev.PreviousKey,
 			Layer: ev.Layer, Stage: ev.Stage, SessionID: ev.Session, IncidentID: ev.IncidentID,
-			Containment: ev.Containment,
+			Containment: ev.Containment, Inputs: ev.Inputs,
 		},
+	}
+	if s := LastInput(ev.Inputs); s != "" {
+		a.FindingInfo.Desc += " " + s
 	}
 	switch ev.Containment {
 	case store.ContainBlocked:
@@ -270,4 +277,38 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+// LastInput describes the last input before a touch in one sentence, or "" if there are
+// none (docs/M9-provenance.md §2).
+func LastInput(ins []store.Input) string {
+	if len(ins) == 0 {
+		return ""
+	}
+	in := ins[len(ins)-1]
+	from := ""
+	if in.Source != "" {
+		from = " from " + in.Source
+	}
+	return fmt.Sprintf("Last input before this touch: %s returned %s characters%s (fingerprint %s) %s earlier; "+
+		"snare provenance find -hash %s names the file.", in.Tool, thousands(in.Length), from, in.Fingerprint,
+		ago(in.AgeSeconds), in.Fingerprint)
+}
+
+func ago(s int) string {
+	switch {
+	case s < 120:
+		return fmt.Sprintf("%d s", s)
+	case s < 7200:
+		return fmt.Sprintf("%d min", s/60)
+	}
+	return fmt.Sprintf("%d h", s/3600)
+}
+
+func thousands(n int) string {
+	s := strconv.Itoa(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
 }

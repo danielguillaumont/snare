@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -233,7 +234,7 @@ func TestHTTPCallbackContextIsAllowlisted(t *testing.T) {
 		t.Errorf("bad values must be dropped: %q", got[1].detail)
 	}
 	// The same facts reach the recorder as structured context (M7 §1).
-	if got[0].ctx != (Context{Via: "egress", Session: "s1a2b3"}) || got[1].ctx != (Context{Session: "ok_1.2-3"}) {
+	if !reflect.DeepEqual(got[0].ctx, Context{Via: "egress", Session: "s1a2b3"}) || !reflect.DeepEqual(got[1].ctx, Context{Session: "ok_1.2-3"}) {
 		t.Errorf("structured context: %+v / %+v", got[0].ctx, got[1].ctx)
 	}
 }
@@ -259,11 +260,47 @@ func TestHTTPArrivalContext(t *testing.T) {
 		t.Fatalf("hits: %+v", got)
 	}
 	for i, w := range want {
-		if got[i].ctx != w {
+		if !reflect.DeepEqual(got[i].ctx, w) {
 			t.Errorf("hit %d: context %+v, want %+v", i, got[i].ctx, w)
 		}
 	}
-	if ContextFrom(context.Background()) != (Context{}) {
+	if !reflect.DeepEqual(ContextFrom(context.Background()), Context{}) {
 		t.Error("no context must read as the zero Context")
+	}
+}
+
+// The input ledger (M9 §2): each in<k> must have the exact shape or it is dropped with its
+// src<k>; good entries keep their order, and nothing else reaches the detail.
+func TestHTTPInputsAreValidated(t *testing.T) {
+	s := newSigner(t)
+	r := &rec{}
+	h := &HTTP{Signer: s, Recorder: r, Log: quiet}
+	tok, _, _ := s.Mint()
+	fp := "3fa1c2d4e5f60718"
+	q := "?layer=tool&session=s1" +
+		"&in0=read_file~" + fp + "~1240~4&src0=tickets/T-42.md" +
+		"&in1=read_file~" + strings.ToUpper(fp) + "~1~1&src1=dropped-with-its-entry" + // hex must be lower case
+		"&in2=bad%20tool~" + fp + "~1~1" + // tool charset
+		"&in3=search~" + fp + "~12~0~extra" + // too many fields
+		"&in4=search~" + fp + "~1234567890~0" + // length over 9 digits
+		"&in5=search~" + fp[:15] + "~1~0" + // short fingerprint
+		"&in6=search~" + fp + "~7~0&src6=" + strings.Repeat("a", 129) + // source too long: entry kept, source dropped
+		"&in7=list~" + fp + "~0~3600&src7=a%20b" + // source charset
+		"&in8=extra~" + fp + "~1~1" // only in0..in7
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/v1/"+tok+q, nil))
+	got := r.all()
+	if len(got) != 1 {
+		t.Fatalf("hits: %+v", got)
+	}
+	want := []Input{
+		{Tool: "read_file", Fingerprint: fp, Length: 1240, AgeSeconds: 4, Source: "tickets/T-42.md"},
+		{Tool: "search", Fingerprint: fp, Length: 7, AgeSeconds: 0},
+		{Tool: "list", Fingerprint: fp, Length: 0, AgeSeconds: 3600},
+	}
+	if !reflect.DeepEqual(got[0].ctx.Inputs, want) {
+		t.Fatalf("inputs: got %+v, want %+v", got[0].ctx.Inputs, want)
+	}
+	if strings.Contains(got[0].detail, "in0") || strings.Contains(got[0].detail, "T-42") {
+		t.Fatalf("ledger leaked into the detail: %q", got[0].detail)
 	}
 }

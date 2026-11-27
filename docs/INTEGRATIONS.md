@@ -115,6 +115,24 @@ The release is recorded through the admin API (an admin key) before the freeze i
 If the Snare server is down, deleting `gw.json.frozen` by hand also releases it, but that
 release is not audited. Design: [M8-containment.md](M8-containment.md).
 
+**What the agent read before the touch.** Every touch the gateway reports carries its last
+8 tool results as fingerprints: tool, length, age and a 16-hex hash, never the text. The
+alert's description names the last one. To find the file it came from, run this on the
+machine with the documents; nothing leaves it:
+
+```sh
+snare provenance find -hash 3fa1c2d4e5f60718 kb tickets
+```
+
+To have the alert name the path directly, plant with `-provenance-names`. That sends each
+call's `path`, `url` or similar argument to the Snare server, so it is off by default:
+
+```sh
+snare plant gateway -config gw.json -provenance-names
+```
+
+Design: [M9-provenance.md](M9-provenance.md).
+
 ## 2. Confirm a tripwire is live without paging anyone
 
 You want to know that a touch reaches Snare and your alerting before an attacker tests it

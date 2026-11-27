@@ -36,6 +36,8 @@ type GatewayOptions struct {
 	Overrides  map[string]decoys.Override
 	Command    string // snare binary for the client snippet (default "snare")
 	Contain    string // "", "exfiltration" or "recon" (docs/M8-containment.md); "" is off
+	// ProvenanceNames sends each input's source name with touches (docs/M9-provenance.md §3).
+	ProvenanceNames bool
 }
 
 // Gateway mints one decoy token per catalog decoy, fetches fingerprints of every tripwire in
@@ -57,6 +59,9 @@ func Gateway(c GatewayClient, o GatewayOptions) ([]Entry, string, error) {
 		o.Style = "auto"
 	}
 	cfg := gateway.Config{Style: o.Style, Seed: o.Seed, Decoys: map[string]string{}, Names: o.Overrides}
+	if o.ProvenanceNames {
+		cfg.Provenance = &gateway.Provenance{Names: true}
+	}
 	if o.Contain != "" {
 		cfg.Contain = &gateway.Contain{At: o.Contain}
 		if err := cfg.Validate(); err != nil && err.Error() != "callback_url is required" {

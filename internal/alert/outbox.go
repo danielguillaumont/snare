@@ -445,9 +445,14 @@ func (p *Pipeline) Hit(ctx context.Context, tm token.Match, channel, sourceIP, d
 	// Token ids are globally unique, so the key needs no tenant.
 	alert := p.Dedup.Allow(tokenID+"|"+channel+"|"+sourceIP, at)
 	lc := listener.ContextFrom(ctx)
+	var inputs []store.Input
+	for _, in := range lc.Inputs {
+		inputs = append(inputs, store.Input{Tool: in.Tool, Fingerprint: in.Fingerprint, Length: in.Length,
+			AgeSeconds: in.AgeSeconds, Source: in.Source})
+	}
 	_, ev, _, queued, err := p.Store.RecordHit(ctx, store.Event{
 		TokenID: tokenID, Channel: channel, SourceIP: sourceIP, Detail: truncate(detail, 512), At: at,
-		PreviousKey: tm.PreviousKey, Via: lc.Via, Session: lc.Session, Containment: lc.Containment,
+		PreviousKey: tm.PreviousKey, Via: lc.Via, Session: lc.Session, Containment: lc.Containment, Inputs: inputs,
 	}, alert)
 	if err != nil {
 		return fmt.Errorf("record event: %w", err)

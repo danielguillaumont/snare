@@ -36,7 +36,8 @@ func realAlert(t *testing.T) Alert {
 	_ = v.CreateToken(ctx, store.Token{ID: "tok2", Kind: "decoy_tool", Label: "export_customers"})
 	now := time.Now().UTC()
 	_, _, _, _, _ = st.RecordHit(ctx, store.Event{TokenID: "tok1", Channel: "http", SourceIP: "198.51.100.7", Session: "s0123456789ab", At: now}, false)
-	_, ev, _, _, _ := st.RecordHit(ctx, store.Event{TokenID: "tok2", Channel: "http", SourceIP: "198.51.100.7", Session: "s0123456789ab", Containment: "frozen", Detail: "d", At: now}, false)
+	_, ev, _, _, _ := st.RecordHit(ctx, store.Event{TokenID: "tok2", Channel: "http", SourceIP: "198.51.100.7", Session: "s0123456789ab", Containment: "frozen", Detail: "d", At: now,
+		Inputs: []store.Input{{Tool: "read_file", Fingerprint: "3fa1c2d4e5f60718", Length: 12, AgeSeconds: 4, Source: "tickets/T-42.md"}}}, false)
 	tok, _ := v.GetToken(ctx, "tok2")
 	a, err := Build(ctx, st, tok, ev, DefaultCorrelationWindow)
 	if err != nil || a.Unmapped.CorrelatedTripwires != 2 || len(a.FindingInfo.RelatedEvents) != 1 {

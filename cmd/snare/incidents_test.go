@@ -17,7 +17,10 @@ func TestPrintTimeline(t *testing.T) {
 			LastSeen: t0.Add(time.Minute), Touches: 2, Tripwires: 2, Open: 2, Stages: []string{"recon", "exfiltration"}},
 		Timeline: []admin.IncidentTouch{
 			{Event: store.Event{ID: 7, At: t0, Stage: "recon", Layer: "tool", Status: "open"}, Kind: "decoy_tool", Label: "gateway decoy: export_customer_data"},
-			{Event: store.Event{ID: 8, At: t0.Add(time.Minute), Stage: "exfiltration", Layer: "egress", Status: "open"}, Kind: "honey_credential", Label: "payments .env"},
+			{Event: store.Event{ID: 8, At: t0.Add(time.Minute), Stage: "exfiltration", Layer: "egress", Status: "open",
+				Inputs: []store.Input{{Tool: "search", Fingerprint: "00000000000000aa", Length: 9, AgeSeconds: 30},
+					{Tool: "read_file", Fingerprint: "3fa1c2d4e5f60718", Length: 1240, AgeSeconds: 4, Source: "tickets/T-42.md"}}},
+				Kind: "honey_credential", Label: "payments .env"},
 		},
 	}
 	var b bytes.Buffer
@@ -32,6 +35,13 @@ func TestPrintTimeline(t *testing.T) {
 	}
 	if i, j := strings.Index(out, "export_customer_data"), strings.Index(out, "payments .env"); i < 0 || j < i {
 		t.Errorf("timeline not in time order:\n%s", out)
+	}
+	if !strings.Contains(out, "inputs before event 8, newest first:") || strings.Contains(out, "before event 7") {
+		t.Errorf("inputs section:\n%s", out)
+	}
+	if i, j := strings.Index(out, "3fa1c2d4e5f60718"), strings.Index(out, "00000000000000aa"); i < 0 || j < i ||
+		!strings.Contains(out, "tickets/T-42.md") {
+		t.Errorf("inputs not newest first, or source missing:\n%s", out)
 	}
 	b.Reset()
 	_ = printIncidents(&b, []store.Incident{d.Incident})

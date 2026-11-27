@@ -69,6 +69,8 @@ flowchart LR
 6. **Contain (opt-in, M8).** With `contain` set in the gateway config, a call carrying a
    honey value is not forwarded, and the session's later tool calls fail until an admin
    runs `snare gateway release`, which is audited ([M8](M8-containment.md)).
+   Every gateway touch also carries the agent's last 8 tool results as fingerprints, so the
+   alert names what it read just before ([M9](M9-provenance.md)).
 7. **Respond.** The toucher only ever sees a bland `200 {"status":"ok"}` or an ordinary A
    record. It learns nothing about Snare.
 8. **Triage.** An analyst records what the touch was: `acknowledged`, `resolved` or

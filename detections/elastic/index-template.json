@@ -43,7 +43,16 @@
             "correlated_stages": { "type": "keyword" },
             "correlated_touches": { "type": "integer" },
             "critical_because": { "type": "text" },
-            "containment": { "type": "keyword" }
+            "containment": { "type": "keyword" },
+            "inputs": {
+              "properties": {
+                "tool": { "type": "keyword" },
+                "fingerprint": { "type": "keyword" },
+                "length": { "type": "integer" },
+                "age_seconds": { "type": "integer" },
+                "source": { "type": "keyword" }
+              }
+            }
           }
         }
       }
