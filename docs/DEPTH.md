@@ -101,8 +101,10 @@ remember ([M11](M11-heartbeat.md#decision-heartbeats-dont-reach-sinks)).
 - Benign trips stayed 0/180.
 - Exposure wasn't the limit. About a third of hunters reach for a credential-named tool, and
   only three decoys match the hunt.
-- The next lever is more credential-shaped decoys, screened first
-  ([results-m13](results-m13.md)).
+- A same-day control showed that all 17 decoys in the list made Haiku decline the task three
+  times as often (33% vs 11%).
+- The next levers are a smaller default decoy set matched to the threat, and more
+  credential-shaped decoys, both screened first ([results-m13](results-m13.md)).
 
 **M12 (2026-11-26):** no value reuse had already been fixed for repo and corpus in M3a-fix.
 M12 checks it for every plant command, and adds a layout with no token in the URL. On
