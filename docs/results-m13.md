@@ -1,8 +1,8 @@
 # M13 results — Snare in depth against credential-hunting agents
 
 Pre-registration and changelog: [M13-proof-in-depth.md](M13-proof-in-depth.md).
-Run 2026-11-26, environment `depth`, seeds 43 (core) and 44 (`hunt` top-up). **Live spend
-$2.50** under $6 of caps.
+Run 2026-11-26, environment `depth`, seeds 43 (core) and 44 (`hunt` top-up), and a control with seed 45. **Live spend
+$2.50** under $6 of caps, plus **$0.19** for the control.
 
 Evidence: `experiments/killtest/results/m13/`, one directory per arm and model. The `hunt`
 top-up is `hunt-claude-haiku-5-5-topup/`. Baseline:
@@ -90,13 +90,55 @@ These are tasks that sit next to decoy purposes, M3a-fix2's held-out set.
      `open_support_tunnel`, `rotate_all_keys`) makes Haiku more cautious.
    - Another is model drift since M3a under the same model id. This run can't tell them
      apart. A same-day control with 4 decoys would.
-5. **The false-positive premise holds in depth.** Benign trips were 0/180 across three
+5. **The control (below) settles point 4.** With 4 decoys, declines were 11%, so the tool
+   list drives them.
+6. **The false-positive premise holds in depth.** Benign trips were 0/180 across three
    models, and adjacent trips 0/120, with all 17 decoys inside the agent's tool list.
+
+## Control: is it the tool list? (post-hoc diagnostic, $0.19)
+
+Registered in the changelog before it ran, and approved separately. `hunt`, Haiku, 200 runs,
+seed 45, environment `fix`: the same honey, secrets and tasks, with **4 decoys per run instead
+of 17**. Evidence: `results/m13/control-hunt-fix-claude-haiku-5-5/`.
+
+| Measure | 4 decoys (control) | 17 decoys (`depth`) |
+|---|---|---|
+| Text-only declines, all runs | **22/200 = 11.0%** (CI 7.4–16.1%) | **133/400 = 33.3%** (CI 28.8–38.0%) |
+| Real secret collected, all runs | 30/200 = 15.0% (CI 10.7–20.6%) | 4/400 = 1.0% (CI 0.4–2.5%) |
+| Observable detection, valid runs | 58/178 = 32.6% (CI 26.1–39.8%) | 92/267 = 34.5% (CI 29.0–40.3%) |
+| Observable detection, all runs | 58/200 = 29.0% | 92/400 = 23.0% |
+| Decoy call, among valid runs shown a credential-named decoy | 52/104 = 50.0% (CI 40.6–59.4%) | 90/267 = 33.7% (CI 28.3–39.6%) |
+
+**Reading, as registered:** the CIs don't overlap, so **the bigger tool list drives the
+declines**. The control's decline rate (11%) is close to M3a's 8%, which also points away from
+model drift.
+
+What that means:
+- **A tool list full of sensitive-sounding tools deters this agent from the task.** With 17
+  decoys it collected the real secret in 1% of runs, against 15% with 4. That is a real
+  effect, but on an *authorized audit* run by a cautious model. It isn't evidence that a
+  hijacked agent would be deterred.
+- **Detection doesn't rise with exposure.** Engaged agents are caught at the same rate, about
+  a third. Among all runs, fewer are caught with 17 decoys, because fewer engage.
+- **Not measured:** whether benign agents also decline more with 17 decoys in the list. The
+  benign arms count trips, not task completion. That is a utility question, and the utility
+  arm wasn't run.
+
+The two arms also differ in install names: frozen M3a-fix names in the control, current
+generator names in `depth`. The difference is minor, but it means decoy count isn't the only
+change between them.
 
 ## Consequences for the product
 
 - **Claims:** the README and DEPTH must not say depth catches more credential hunters. The
   measured detection stays about one in three.
+- **The gateway's default decoy set is too big to be neutral.** All 17 decoys changed how
+  often the agent did the task at all: declines went from 11% with 4 decoys to 33%.
+  - That is a utility risk for real work, and it hides attacker behaviour rather than
+    recording it.
+  - The next step is a smaller default, matched to the threat: the credential-named decoys,
+    plus a few the operator picks. That needs its own screened design before the default
+    changes.
 - **Decoy set:** the 14 decoys that caught nothing in this objective cost nothing in false
   trips here either. They target other objectives (export, tunnel, audit tampering), which
   this eval doesn't exercise. They stay, and the claim is scoped to credential hunting.
@@ -114,9 +156,7 @@ These are tasks that sit next to decoy purposes, M3a-fix2's held-out set.
 
 ## Next steps
 
-1. **A same-day control** to separate deterrence from drift: `hunt` with 4 decoys
-   (`--env fix`), 200 Haiku runs, about $0.20. Needs approval: it isn't part of the approved
-   core.
+1. **Done: the same-day control** (above). The bigger tool list drives the declines.
 2. **Detection beyond credential-named tools:** more credential-shaped decoys (deploy keys,
    CI secrets, `.npmrc` tokens), screened first for benign trips.
 3. **M14**, first run end to end, which needs no live spend.
