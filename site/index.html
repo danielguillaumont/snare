@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- The project page. Static, no build step: open it directly, or serve site/ with GitHub Pages. -->
+<title>Snare</title>
+<meta name="description" content="Snare: tripwires for AI agents. Decoy tools, honey credentials and canaries that legitimate work never touches, measured in pre-registered evaluations.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column; the incident timeline is the hero object, stages run left to right as a kill chain. */
+:root {
+  --paper: #f3f5f6;
+  --sheet: #ffffff;
+  --ink: #17212b;
+  --muted: #56636f;
+  --rule: #d5dce1;
+  --accent: #1f5f8b;
+  --warn: #a8670d;
+  --crit: #b3261e;
+  --ok: #2f7a4f;
+  --code: #e8edf0;
+  --display: "Familjen Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #10161b; --sheet: #161e25; --ink: #e3e9ee; --muted: #93a1ad; --rule: #2a3640;
+    --accent: #7db4dc; --warn: #e0a24a; --crit: #f07b72; --ok: #6cc290; --code: #1d2730;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #10161b; --sheet: #161e25; --ink: #e3e9ee; --muted: #93a1ad; --rule: #2a3640;
+  --accent: #7db4dc; --warn: #e0a24a; --crit: #f07b72; --ok: #6cc290; --code: #1d2730;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--paper); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+main { max-width: 980px; margin: 0 auto; padding-block: 2.5rem 4rem; display: grid; gap: 4.5rem; }
+h1, h2, h3 { font-family: var(--display); line-height: 1.1; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2.6rem, 7vw, 4.6rem); font-weight: 700; letter-spacing: -0.02em; }
+h2 { font-size: clamp(1.6rem, 3.4vw, 2.2rem); font-weight: 600; }
+h3 { font-size: 1.1rem; font-weight: 600; }
+p { margin: 0; max-width: 66ch; }
+a { color: var(--accent); text-underline-offset: 3px; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+code, .mono { font-family: var(--mono); font-size: 0.9em; }
+.label { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+section { display: grid; gap: 1.25rem; }
+
+/* header */
+.top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0.75rem 1.5rem; }
+.brand { font-family: var(--display); font-weight: 700; font-size: 1.25rem; letter-spacing: -0.01em; }
+.brand span { color: var(--muted); font-weight: 500; }
+.top nav { display: flex; flex-wrap: wrap; gap: 1.25rem; font-size: 0.95rem; }
+
+/* hero */
+.hero { display: grid; gap: 1.5rem; }
+.hero .lede { font-size: 1.2rem; color: var(--muted); max-width: 60ch; }
+.hero .lede b { color: var(--ink); font-weight: 600; }
+
+/* incident card */
+.incident { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+.incident header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 1rem; padding: 0.9rem 1.1rem; border-bottom: 1px solid var(--rule); }
+.incident header .id { font-family: var(--mono); font-size: 0.85rem; }
+.chain { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; font-family: var(--mono); font-size: 0.8rem; }
+.chain i { font-style: normal; color: var(--muted); }
+.stage { padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid currentColor; font-family: var(--mono); font-size: 0.75rem; white-space: nowrap; }
+.s-steered { color: var(--muted); } .s-recon { color: var(--accent); } .s-collection { color: var(--warn); } .s-exfiltration, .s-use { color: var(--crit); }
+.rows { list-style: none; margin: 0; padding: 0; }
+.rows li { display: grid; grid-template-columns: 7.5rem 1fr auto; gap: 0.25rem 1rem; align-items: start; padding: 0.85rem 1.1rem; border-bottom: 1px solid var(--rule); transition: background-color 0.3s; }
+.rows li:last-child { border-bottom: 0; }
+.rows li > div { min-width: 0; }
+.rows .what { font-weight: 500; }
+.rows .why { color: var(--muted); font-size: 0.92rem; }
+.rows .tag { font-family: var(--mono); font-size: 0.75rem; padding: 0.1rem 0.45rem; border-radius: 4px; white-space: nowrap; }
+.tag.open { background: color-mix(in srgb, var(--crit) 14%, transparent); color: var(--crit); }
+.tag.warning { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+.tag.blocked { background: color-mix(in srgb, var(--crit) 14%, transparent); color: var(--crit); }
+.tag.read { background: var(--code); color: var(--muted); }
+.rows li.lit { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.incident footer { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem; padding: 0.8rem 1.1rem; border-top: 1px solid var(--rule); background: color-mix(in srgb, var(--code) 55%, transparent); font-size: 0.9rem; color: var(--muted); }
+button { font: inherit; font-size: 0.9rem; color: var(--ink); background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 0.35rem 0.8rem; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+@media (max-width: 600px) {
+  .rows li { grid-template-columns: 1fr auto; }
+  .rows li .st { grid-column: 1 / -1; }
+}
+
+/* layers */
+.layers { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+.layer { background: var(--sheet); padding: 1.1rem; display: grid; gap: 0.45rem; align-content: start; }
+.layer p { font-size: 0.95rem; color: var(--muted); }
+.layer .stage { justify-self: start; }
+
+/* numbers */
+.tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 10px; background: var(--sheet); }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 0.95rem; }
+th, td { text-align: left; padding: 0.75rem 1rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.n small { display: block; color: var(--muted); font-size: 0.78rem; }
+.verdict { font-family: var(--mono); font-size: 0.75rem; font-weight: 500; }
+.v-pass { color: var(--ok); } .v-fail { color: var(--crit); } .v-none { color: var(--muted); }
+.note { font-size: 0.92rem; color: var(--muted); }
+
+/* two-column prose */
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1.5rem 2.5rem; }
+.cols > div { display: grid; gap: 0.6rem; align-content: start; min-width: 0; }
+ul.plain { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.45rem; }
+
+/* commands */
+pre { margin: 0; background: var(--code); border-radius: 8px; padding: 1rem 1.1rem; overflow-x: auto; font-family: var(--mono); font-size: 0.88rem; line-height: 1.55; }
+pre .c { color: var(--muted); }
+.foot { border-top: 1px solid var(--rule); padding-top: 1.5rem; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; color: var(--muted); font-size: 0.9rem; }
+@media (prefers-reduced-motion: reduce) { .rows li { transition: none; } }
+</style>
+<style>html{color-scheme:light}body{margin:0}</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <div class="brand">Snare <span>tripwires for AI agents</span></div>
+    <nav aria-label="Sections">
+      <a href="#layers">How it works</a>
+      <a href="#measured">What we measured</a>
+      <a href="#try">Try it</a>
+      <a href="https://github.com/danielguillaumont/snare">GitHub</a>
+    </nav>
+  </div>
+
+  <section class="hero" aria-labelledby="thesis">
+    <h1 id="thesis">Legitimate work never touches a trap.</h1>
+    <p class="lede">Prompt injection has no complete fix, and a hijacked agent acts with its own permissions, so normal logs see nothing odd. Snare plants <b>decoy tools, honey credentials and canaries</b> where agents work. When one is touched, you get an alert that names the trap, the session and what the agent read just before.</p>
+
+    <article class="incident" aria-label="Example incident from snare demo -attack">
+      <header>
+        <div class="id">incident 1 · session s-demo-1723d5</div>
+        <div class="chain" aria-label="Stages reached">
+          <span class="stage s-steered">steered</span><i>›</i>
+          <span class="stage s-recon">recon</span><i>›</i>
+          <span class="stage s-collection">collection</span><i>›</i>
+          <span class="stage s-exfiltration">exfiltration</span>
+        </div>
+      </header>
+      <ol class="rows" id="rows">
+        <li><span class="stage s-steered st">steered</span><div><div class="what">reads <code>tickets/T-8812.md</code></div><div class="why">An HTML comment in the ticket tells the agent to email the payments key out. Snare records the ticket's fingerprint, never its text.</div></div><span class="tag read">input</span></li>
+        <li><span class="stage s-recon st">recon</span><div><div class="what">calls <code>read_env_secrets</code></div><div class="why">A decoy the gateway slipped into the real server's tool list, named in its style.</div></div><span class="tag open">alert</span></li>
+        <li><span class="stage s-collection st">collection</span><div><div class="what">reads <code>billing/.env</code></div><div class="why">The result holds a honey key. The gateway sees it on the way back and records a warning.</div></div><span class="tag warning">warning</span></li>
+        <li><span class="stage s-exfiltration st">exfiltration</span><div><div class="what">emails <code>PAYMENTS_API_KEY</code> out</div><div class="why">The call is never forwarded and the session is frozen until an admin releases it.</div></div><span class="tag blocked">blocked</span></li>
+      </ol>
+      <footer>
+        <span>Replayed through a real gateway by <code>snare demo -attack</code>. No model is called.</span>
+        <button type="button" id="replay">Replay</button>
+      </footer>
+    </article>
+  </section>
+
+  <section id="layers" aria-labelledby="h-layers">
+    <span class="label">How it works</span>
+    <h2 id="h-layers">One trap per stage of an attack</h2>
+    <p>The gateway wraps an agent's real MCP server and relays its traffic unchanged. Touches from one session form an incident, ranked by the deepest stage it reached. Two stages in one session make it Critical.</p>
+    <div class="layers">
+      <div class="layer"><span class="stage s-steered">steered</span><h3>Context canaries and tool integrity</h3><p>A leaked system prompt or acted-on memory fires. So does a tool whose description changed after it was pinned.</p></div>
+      <div class="layer"><span class="stage s-recon">recon</span><h3>Decoy tools</h3><p>Decoys inside the real server's tool list, named the way that server names things. Screened against benign tasks before they ship.</p></div>
+      <div class="layer"><span class="stage s-collection">collection</span><h3>Honey credentials and early warning</h3><p>Planted keys, URLs and hosts. When one comes back in a tool result, the agent has read it: that's a warning.</p></div>
+      <div class="layer"><span class="stage s-exfiltration">exfiltration · use</span><h3>Egress and use</h3><p>A honey value in any real tool's arguments, or presented as a credential anywhere, alerts. Containment can block the call.</p></div>
+    </div>
+    <p class="note">Alerts are OCSF 1.3 Detection Findings, sent to a signed webhook, Splunk, Elastic, Sentinel or Slack. Each touch carries fingerprints of the agent's last 8 inputs, so the alert names the file that steered it.</p>
+  </section>
+
+  <section id="measured" aria-labelledby="h-measured">
+    <span class="label">What we measured</span>
+    <h2 id="h-measured">Pre-registered, including the misses</h2>
+    <p>Every rule was fixed before its run. Intervals are 95% Wilson. Models are Claude Haiku, Sonnet and Opus, in our own scripted environments and in AgentDojo. Total spend so far is about $34.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Question</th><th scope="col">Result</th><th scope="col">Verdict</th></tr></thead>
+        <tbody>
+          <tr><td>Do honest agents touch decoys?</td><td class="n">0/600<small>CI 0–0.6% · M0, 3 models</small></td><td><span class="verdict v-pass">GO</span></td></tr>
+          <tr><td>Safe on an outside benchmark?</td><td class="n">0/291 benign trips<small>utility −3.4 pts · AgentDojo, M3c</small></td><td><span class="verdict v-pass">PASS</span></td></tr>
+          <tr><td>Do alert-level traps catch credential hunters?</td><td class="n">92/267 = 34.5%<small>CI 29.0–40.3% · bar 51.2% · M13</small></td><td><span class="verdict v-fail">FAIL</span></td></tr>
+          <tr><td>With early warnings, are they on the record?</td><td class="n">106/138 = 76.8%<small>CI 69.1–83.1% · bar 60% · M16</small></td><td><span class="verdict v-pass">PASS</span></td></tr>
+          <tr><td>Does a scripted Snare-aware evader get through?</td><td class="n">200/200 caught<small>was 0/200 before unprefixed tokens</small></td><td><span class="verdict v-pass">PASS</span></td></tr>
+          <tr><td>Does an attacker who read our source get through?</td><td class="n">138/200 caught<small>operator-named decoys · bar 90% · M12</small></td><td><span class="verdict v-fail">FAIL</span></td></tr>
+          <tr><td>Will a model send production credentials out when asked?</td><td class="n">0/40<small>Haiku declined every handoff · M15</small></td><td><span class="verdict v-none">STOPPED</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="cols">
+      <div>
+        <h3>What holds up</h3>
+        <ul class="plain">
+          <li>False alarms stay near zero across every run, three models and an outside benchmark.</li>
+          <li>Every run that sent a real secret out through a tool was caught (17/17, post-hoc).</li>
+          <li>Most agents that slipped past the traps had read the honey file first. That read is now on the record.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>What doesn't, yet</h3>
+        <ul class="plain">
+          <li>More decoys didn't catch more agents, and a long tool list tripled text-only declines.</li>
+          <li>57 of the 106 M16 runs have only a warning, which doesn't page anyone.</li>
+          <li>Claude models rarely got hijacked in our lab, so detection of real hijacks needs real deployments.</li>
+        </ul>
+      </div>
+    </div>
+    <p class="note">Every number links to its denominator and raw data in <a href="https://github.com/danielguillaumont/snare/blob/main/docs/FINDINGS.md">FINDINGS.md</a>.</p>
+  </section>
+
+  <section id="try" aria-labelledby="h-try">
+    <span class="label">Try it</span>
+    <h2 id="h-try">Two commands, nothing leaves your machine</h2>
+    <p>Static binaries for Linux, macOS and Windows are on the releases page, signed keylessly in CI.</p>
+<pre><span class="c"># replay the hijack above through a real gateway, with a dashboard</span>
+snare demo -attack
+
+<span class="c"># find your MCP client configs and plan which servers to wrap (dry run)</span>
+snare init
+snare init -apply   <span class="c"># back up, wrap, verify each alert path, print coverage</span></pre>
+  </section>
+
+  <div class="foot">
+    <span>Snare is open source. Go service, Python evaluation harness.</span>
+    <a href="https://github.com/danielguillaumont/snare">github.com/danielguillaumont/snare</a>
+  </div>
+</main>
+
+<script>
+(function () {
+  var rows = Array.prototype.slice.call(document.querySelectorAll('#rows li'));
+  var btn = document.getElementById('replay');
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var timer = null;
+  btn.addEventListener('click', function () {
+    clearInterval(timer);
+    var i = 0;
+    rows.forEach(function (r) { r.classList.remove('lit'); });
+    if (reduce) { return; }
+    btn.textContent = 'Replaying';
+    timer = setInterval(function () {
+      rows.forEach(function (r, j) { r.classList.toggle('lit', j === i); });
+      i++;
+      if (i > rows.length) {
+        clearInterval(timer);
+        rows.forEach(function (r) { r.classList.remove('lit'); });
+        btn.textContent = 'Replay';
+      }
+    }, 900);
+  });
+})();
+</script>
+</body>
+</html>
