@@ -102,24 +102,11 @@ func Gateway(c GatewayClient, o GatewayOptions) ([]Entry, string, error) {
 		cfg.Heartbeat = &gateway.Heartbeat{Token: r.Token, Every: every}
 		entries = append(entries, Entry{Type: "gateway", Path: o.ConfigPath, Label: label, Kind: store.KindHeartbeat, TokenID: r.ID, PlantedAt: time.Now().UTC()})
 	}
-	if !o.NoExposure {
-		label := "gateway exposure: " + filepath.Base(absOr(o.ConfigPath))
-		r, err := mt.Mint(store.KindExposure, label, "planted by snare plant gateway; touched when a honey value reaches the agent in a tool result: a warning, never an alert on its own")
-		if err != nil {
-			return nil, "", err
-		}
-		cfg.Exposure = &gateway.Exposure{Token: r.Token}
-		entries = append(entries, Entry{Type: "gateway", Path: o.ConfigPath, Label: label, Kind: store.KindExposure, TokenID: r.ID, PlantedAt: time.Now().UTC()})
+	added, err := addWarnings(mt, &cfg, o.ConfigPath, !o.NoExposure, !o.NoIntegrity)
+	if err != nil {
+		return nil, "", err
 	}
-	if !o.NoIntegrity {
-		label := "gateway integrity: " + filepath.Base(absOr(o.ConfigPath))
-		r, err := mt.Mint(store.KindIntegrity, label, "planted by snare plant gateway; touched when a real tool's definition changes: a warning, never an alert on its own")
-		if err != nil {
-			return nil, "", err
-		}
-		cfg.Integrity = &gateway.Integrity{Token: r.Token}
-		entries = append(entries, Entry{Type: "gateway", Path: o.ConfigPath, Label: label, Kind: store.KindIntegrity, TokenID: r.ID, PlantedAt: time.Now().UTC()})
-	}
+	entries = append(entries, added...)
 	if !o.DryRun {
 		if _, err := fetch(c, &cfg); err != nil {
 			return nil, "", err
@@ -142,6 +129,48 @@ func Gateway(c GatewayClient, o GatewayOptions) ([]Entry, string, error) {
 		"<server name>": map[string]any{"command": cmd, "args": []string{"gateway", "-config", absOr(o.ConfigPath), "--", "<real server command>", "<its args>"}},
 	}}, "", "  ")
 	return entries, string(snippet), nil
+}
+
+// addWarnings mints the warning tokens a config doesn't have yet (docs/M16-early-warning.md,
+// docs/M17-tool-integrity.md) and returns their entries.
+func addWarnings(mt Minter, cfg *gateway.Config, path string, exposure, integrity bool) ([]Entry, error) {
+	var out []Entry
+	base := filepath.Base(absOr(path))
+	if exposure && cfg.Exposure == nil {
+		label := "gateway exposure: " + base
+		r, err := mt.Mint(store.KindExposure, label, "planted by snare plant gateway; touched when a honey value reaches the agent in a tool result: a warning, never an alert on its own")
+		if err != nil {
+			return nil, err
+		}
+		cfg.Exposure = &gateway.Exposure{Token: r.Token}
+		out = append(out, Entry{Type: "gateway", Path: path, Label: label, Kind: store.KindExposure, TokenID: r.ID, PlantedAt: time.Now().UTC()})
+	}
+	if integrity && cfg.Integrity == nil {
+		label := "gateway integrity: " + base
+		r, err := mt.Mint(store.KindIntegrity, label, "planted by snare plant gateway; touched when a real tool's definition changes: a warning, never an alert on its own")
+		if err != nil {
+			return nil, err
+		}
+		cfg.Integrity = &gateway.Integrity{Token: r.Token}
+		out = append(out, Entry{Type: "gateway", Path: path, Label: label, Kind: store.KindIntegrity, TokenID: r.ID, PlantedAt: time.Now().UTC()})
+	}
+	return out, nil
+}
+
+// AddWarnings upgrades a gateway config planted before M16/M17: it mints whichever warning
+// tokens the config lacks (each only when asked for) and rewrites the config. A config that
+// already has them is left as it is. Restart the gateway to pick them up.
+func AddWarnings(c Minter, o Options, path string, exposure, integrity bool) ([]Entry, error) {
+	cfg, err := gateway.LoadConfig(path)
+	if err != nil {
+		return nil, err
+	}
+	added, err := addWarnings(minter(c, o), &cfg, path, exposure, integrity)
+	if err != nil || len(added) == 0 || o.DryRun {
+		return added, err
+	}
+	b, _ := json.MarshalIndent(cfg, "", "  ")
+	return added, writePrivate(path, b, true)
 }
 
 // RefreshGateway re-fetches fingerprints for an existing gateway config under a new salt, so
