@@ -74,6 +74,20 @@ key pasted into an email. Everything else passes through unchanged.
 snare plant gateway -config gw.json -exclude list_api_keys
 ```
 
+**Names in the server's own vocabulary (opt-in).** With `-style adapt`, decoy names also take
+the real server's namespace and verbs, and its argument style: a Jira server whose tools are
+`jiraFetchIssue` and `jiraShowBoards` gets decoys like `jiraFetchEnvSecrets`. Preview them
+from a saved `tools/list` reply before you plant:
+
+```sh
+snare decoys -adapt tools.json
+```
+
+Adapted names haven't been screened for benign trips yet, so `auto` (style only) stays the
+default. An attacker who has read Snare's code can still recognise generated names; your own
+names (`-names`) are the ones it can't. Measured in
+[results-m12.md](results-m12.md).
+
 Then change the server's client entry from running the server directly to running it
 behind the gateway. For a server started with `npx some-mcp-server --repo .`:
 

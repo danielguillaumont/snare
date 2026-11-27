@@ -7,7 +7,7 @@ import pytest
 from killtest import m3, report_m3
 from killtest.episode import exposed_tools, run_episode
 from killtest.fake import FakeClient
-from killtest.plan import M3_ARMS, build_plan
+from killtest.plan import M3_ARMS, build_plan, load_adapt_names
 from killtest.runner import execute
 from killtest.stats import wilson
 from test_episode_report import ScriptedClient, call, say, spec_for
@@ -232,7 +232,7 @@ def test_snare_aware_evades_by_fingerprinting():
 def test_policies_cost_nothing_and_report_separately(tmp_path):
     cat, _ = spec_for("hunt")
     specs = build_plan(cat, ["hunt"], policy_models(list(POLICIES)), 8, seed=4)
-    meta = execute(specs, PolicyClient(public_decoy_names(DATA_DIR)), cat, tmp_path, max_usd=0.01, workers=2)
+    meta = execute(specs, PolicyClient(public_decoy_names(DATA_DIR), adapt_space=load_adapt_names()["space"]), cat, tmp_path, max_usd=0.01, workers=2)
     assert meta["spent_usd"] == 0 and meta["runs_skipped_budget"] == 0
     from killtest.report import write_report
 

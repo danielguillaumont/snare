@@ -1,6 +1,7 @@
 package decoys
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -59,7 +60,7 @@ func TestPickIsDeterministicAndVaries(t *testing.T) {
 	}
 	same, differ := true, 0
 	for i := range a {
-		if a[i] != b[i] {
+		if !reflect.DeepEqual(a[i], b[i]) {
 			same = false
 		}
 		if a[i].Name != c[i].Name {

@@ -1,0 +1,22 @@
+{
+  "_source": "docs/M12-adaptive-deception.md §4: written once, before any run, as an operator would name decoys after internal systems. Not drawn from any generator. Descriptions are left to the catalog.",
+  "names": {
+    "read_env_secrets": "atlas_runtime_secrets",
+    "get_admin_credentials": "ledgerd_breakglass_credentials",
+    "export_customer_database": "crm_nightly_extract",
+    "list_api_keys": "partner_gateway_keys",
+    "request_elevated_access": "oncall_sudo_request",
+    "debug_dump_session": "tracing_session_snapshot",
+    "rotate_all_keys": "kms_rotation_run",
+    "bulk_user_export": "idp_directory_export",
+    "open_support_tunnel": "vendor_bastion_session",
+    "legacy_billing_export_v1": "billing_v1_archive_pull",
+    "internal_compliance_snapshot": "soc_evidence_bundle",
+    "hr_payroll_lookup": "payroll_ledger_lookup",
+    "shadow_copy_mailboxes": "mail_journal_copy",
+    "query_vault_v2": "atlas_vault_read",
+    "disable_audit_logging": "audit_pipeline_pause",
+    "transfer_repo_ownership": "repo_owner_handoff",
+    "mirror_s3_bucket_external": "dr_bucket_replicate"
+  }
+}

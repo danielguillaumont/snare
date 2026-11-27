@@ -21,8 +21,14 @@ ARMS = (*M0_ARMS, *M3_ARMS, *FIX2_ARMS)
 # "screen" and "variants" (M3a-fix2, docs/M3a-fix2-name-screen.md) show each decoy under a name
 # from its pool, cycled so every name gets equal exposure. screen = catalog name + alternatives;
 # variants = surviving alternatives only.
-ENVS = ("m3a", "fix", "screen", "variants")
+# "adapt" and "adapt-names" (M12, docs/M12-adaptive-deception.md §4) start from "fix": decoy
+# names adapted to each scenario's real tools by the Go code, or the operator's own names, and
+# the key honey layout.
+ENVS = ("m3a", "fix", "screen", "variants", "adapt", "adapt-names")
+ADAPT_ENVS = ("adapt", "adapt-names")
 FIX_NAMES_FILE = DATA_DIR / "decoy_names_fix.json"
+ADAPT_NAMES_FILE = DATA_DIR / "decoy_names_adapt.json"
+OPERATOR_NAMES_FILE = DATA_DIR / "operator_names.json"
 POOL_FILES = {"screen": DATA_DIR / "decoy_names_screen.json", "variants": DATA_DIR / "decoy_names_variants.json"}
 B32 = "abcdefghijklmnopqrstuvwxyz234567"
 HEX = "0123456789abcdef"
@@ -128,6 +134,23 @@ def load_fix_names(path=FIX_NAMES_FILE) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def load_adapt_names(path=ADAPT_NAMES_FILE) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_operator_names(path=OPERATOR_NAMES_FILE) -> dict[str, str]:
+    return json.loads(path.read_text(encoding="utf-8"))["names"]
+
+
+def all_shown_names() -> frozenset[str]:
+    """Every decoy name any environment can show, so a fake client can recognize decoys."""
+    names = set(load_fix_names()["all_generated"]) | set(load_operator_names().values())
+    for sc in load_adapt_names()["scenarios"].values():
+        for ins in sc["installs"]:
+            names |= set(ins["names"].values())
+    return frozenset(names)
+
+
 def load_pools(env: str) -> dict[str, list[str]]:
     return json.loads(POOL_FILES[env].read_text(encoding="utf-8"))["pools"]
 
@@ -154,6 +177,12 @@ def make_tag(rng: random.Random) -> str:
     return "SNR-" + "".join(rng.choice("0123456789ABCDEF") for _ in range(6))
 
 
+def m3_tools(catalog: Catalog, scenario):
+    from . import m3
+
+    return m3.tools_for_scenario(catalog.m3, scenario)
+
+
 def build_plan(
     catalog: Catalog, arms: list[str], models: list[str], runs_per_cell: int, seed: int, env: str = "m3a"
 ) -> list[RunSpec]:
@@ -161,6 +190,21 @@ def build_plan(
     if env not in ENVS:
         raise ValueError(f"unknown env {env!r}")
     installs = load_fix_names()["installs"] if env == "fix" else []
+    adapt: dict[str, list[dict]] = {}
+    if env == "adapt":
+        adapt = {k: v["installs"] for k, v in load_adapt_names()["scenarios"].items()}
+    elif env == "adapt-names":
+        op = load_operator_names()
+        adapt = {k: [{"seed": 0, "names": op}] for k in catalog.scenarios}
+    for sname, ins_list in adapt.items():
+        sc = catalog.scenarios[sname]
+        real = {t.name for t in (m3_tools(catalog, sc) if catalog.m3 else sc.tools)}
+        for ins in ins_list:
+            if set(ins["names"]) != catalog.decoy_names:
+                raise ValueError(f"{env} {sname}: names do not match the decoy catalog")
+            shown = list(ins["names"].values())
+            if real & set(shown) or len(shown) != len(set(shown)):
+                raise ValueError(f"{env} {sname} install {ins['seed']}: names collide")
     cycler = None
     if env in POOL_FILES:
         pools = load_pools(env)
@@ -222,6 +266,9 @@ def build_plan(
                     fix = {"env": "fix", "shown": tuple(names[d] for d in decoy_sets[i])}
                 elif cycler:
                     fix = {"env": env, "shown": tuple(cycler.next(d) for d in decoy_sets[i])}
+                elif adapt:
+                    names = adapt[scenario.name][i % len(adapt[scenario.name])]["names"]
+                    fix = {"env": env, "shown": tuple(names[d] for d in decoy_sets[i])}
                 specs.append(
                     RunSpec(
                         run_id=f"{arm}-{model}-{i:04d}",
@@ -243,4 +290,8 @@ def build_plan(
                     shape, secret = make_varied_secret(rng)
                     specs[-1] = dataclasses.replace(specs[-1], secret=secret, secret_shape=shape,
                                                     honey=make_v2_token(rng), honey_url=make_v2_token(rng))
+                elif adapt and m3:  # as fix, but the key layout: no URL token
+                    shape, secret = make_varied_secret(rng)
+                    specs[-1] = dataclasses.replace(specs[-1], secret=secret, secret_shape=shape,
+                                                    honey=make_v2_token(rng))
     return specs

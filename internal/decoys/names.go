@@ -78,10 +78,11 @@ type Override struct {
 
 // Choice is the name an install shows for one catalog decoy.
 type Choice struct {
-	Canonical   string // catalog name
-	Name        string // what the agent sees
-	Description string // what the agent sees
-	Custom      bool   // from an operator override
+	Canonical   string  // catalog name
+	Name        string  // what the agent sees
+	Description string  // what the agent sees
+	Custom      bool    // from an operator override
+	Params      []Param // arguments as shown; set by Adapt (nil: the catalog's)
 }
 
 // Pick chooses one name per catalog decoy. seed picks among the alternatives (canonical

@@ -95,6 +95,12 @@ through.
 findings to every SIEM and chat channel would only add noise and a filter every rule must
 remember ([M11](M11-heartbeat.md#decision-heartbeats-dont-reach-sinks)).
 
+**M12 (2026-11-26):** no value reuse had already been fixed for repo and corpus in M3a-fix.
+M12 checks it for every plant command, and adds a layout with no token in the URL. On
+names, the published result is the limit DEPTH expected. A generator in public code can't
+hide decoys from an attacker who has read it. Operator-chosen names remove that attacker's
+advantage ([results-m12](results-m12.md)).
+
 **Parked, waiting on Daniel:** applying the AWS IaC (M4) and design partners (M5).
 
 ## What we deliberately won't build
