@@ -38,8 +38,9 @@ Both `plant mcp` and `plant gateway` plant all 17 catalog decoys by default. `-p
 that to the objectives you want trapped: `credentials` (4 decoys), `data` (7) or `control` (6),
 comma-separated. `-exclude` still applies on top. In our eval, the full list made one model
 decline an authorized task three times as often as a short list did
-([results-m13](results-m13.md)), so a smaller set is worth considering. Whether `credentials`
-should become the default is being tested in [M13b](M13b-default-decoy-set.md).
+([results-m13](results-m13.md)), so a smaller set is worth considering. A pre-registered screen
+of `credentials` as the default cut declines from 33% to 24% but missed its bar, so the
+default stays `all` ([results-m13b](results-m13b.md)).
 
 `plant mcp` writes `decoy-mcp.json` and prints a client entry like this, with the absolute
 paths of your `snare` binary and config file:

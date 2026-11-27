@@ -12,8 +12,8 @@
 So the full set doesn't buy detection here. It changes whether the agent does the task at all,
 which is also a risk for real work. M13 didn't measure benign task completion.
 
-**Status: design, mechanism and screen pre-registered 2026-11-26. The default changes only if
-the screen passes, and the screen's live spend needs Daniel's approval first.**
+**Status: done 2026-11-26. The screen failed B1 by 1.6 points, so the default stays `all`.
+`-profile` ships as an option. See [results-m13b](results-m13b.md).**
 
 ## 1. Profiles
 
@@ -93,7 +93,7 @@ a narrower exposure. That is a judgment, stated so it can be challenged.
 | Item | Status | Evidence |
 |---|---|---|
 | Mechanism | Done, $0 | `internal/decoys/profiles.go`, `internal/plant/profile_test.go`, `experiments/killtest/tests/test_m13b.py`; dry runs of all three arms |
-| Screen | Not run (needs approval) | |
+| Screen | **FAIL** (B1 fail, B2 and B3 pass), $0.25 | [results-m13b](results-m13b.md), `experiments/killtest/results/m13b/` |
 
 ## Changelog
 
@@ -104,3 +104,7 @@ a narrower exposure. That is a judgment, stated so it can be challenged.
   the screen or its criteria.
 - 2026-11-26 (mechanism, before any run): `adjacent3` has no honey file, as in M13, so B3's
   "honey uses" applies to `benign3` only. Same as M13; recorded so the count isn't misread.
+- 2026-11-26 (after the run): `adjacent3` doesn't fill in `tool_calls`, so the harness's
+  valid-run filter counts none of its runs. That was also true in M13. B3 was scored from the
+  `calls` log, as M13 scored it: every run made real calls, and none was to a decoy. No criterion
+  changed.

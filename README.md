@@ -131,6 +131,7 @@ sha256sum -c SHA256SUMS --ignore-missing
 | M11 heartbeat: each path (HTTP, DNS, gateway) shows when it was last verified, and goes stale when it breaks | ✅ Built ([results](docs/M11-heartbeat.md#results)) |
 | M12 adaptive deception: decoy names in the real server's vocabulary, a tokenless honey URL, and a code-reading attacker re-run | ✅ Published, 1 of 2 criteria met ([results](docs/results-m12.md)) |
 | M13 proof in depth: pre-registered rerun with every layer | ❌ Published: detection not improved (34.5% vs a 51.2% bar), 0/180 benign trips ([results](docs/results-m13.md)) |
+| M13b smaller default decoy set: pre-registered screen | ❌ Published: declines 24% vs 33% but missed the bar (CI upper 30.4% vs < 28.8%); detection 40%, 0/180 benign trips. Default stays all 17; `-profile credentials` ships as an option ([results](docs/results-m13b.md)) |
 | M14 first run, end to end | Planned ([docs/DEPTH.md](docs/DEPTH.md)) |
 | M5 design partners | Not started |
 
