@@ -61,6 +61,17 @@ type Config struct {
 	// EventRetention deletes closed and muted events older than this (SNARE_EVENT_RETENTION,
 	// in days; docs/M4f-distribution.md §2). Zero keeps events forever.
 	EventRetention time.Duration
+
+	// Heartbeat is the server probe interval (SNARE_HEARTBEAT; docs/M11-heartbeat.md). Zero
+	// is off. HeartbeatStale is when a channel counts as stale (SNARE_HEARTBEAT_STALE);
+	// zero means three intervals, or 45 minutes with the probe off.
+	Heartbeat      time.Duration
+	HeartbeatStale time.Duration
+
+	// Tests: a clock for the pipeline, API, dashboard and metrics, and a resolver for the
+	// DNS probe (it is given the started server, so it can dial its DNS listener).
+	now      func() time.Time
+	resolver func(*Server) *net.Resolver
 }
 
 // FromEnv reads the SNARE_* variables documented in docs/M1-callback.md.
@@ -121,6 +132,12 @@ func FromEnv() (Config, error) {
 	if c.EventRetention, err = retentionFromEnv(os.Getenv("SNARE_EVENT_RETENTION")); err != nil {
 		return Config{}, err
 	}
+	if c.Heartbeat, c.HeartbeatStale, err = heartbeatFromEnv(os.Getenv("SNARE_HEARTBEAT"), os.Getenv("SNARE_HEARTBEAT_STALE")); err != nil {
+		return Config{}, err
+	}
+	if c.Heartbeat > 0 && c.PublicURL == "" {
+		return Config{}, errors.New("SNARE_HEARTBEAT needs SNARE_PUBLIC_URL: the probe goes through the public URL")
+	}
 	c.SinkAllowPrivate = os.Getenv("SNARE_SINK_ALLOW_PRIVATE") == "1"
 	c.DashboardAddr = os.Getenv("SNARE_DASHBOARD_ADDR")
 	c.DashboardDev = os.Getenv("SNARE_DASHBOARD_DEV") == "1"
@@ -145,6 +162,7 @@ type Server struct {
 	httpSrv, adminSrv, dashSrv *http.Server
 	dnsUDP, dnsTCP             *dns.Server
 	retention                  *retention
+	probe                      *prober // heartbeat (M11); nil when off
 
 	// Bound addresses, useful when configured with port 0.
 	HTTPAddr, AdminAddr, DNSAddr, DashboardAddr string
@@ -201,7 +219,9 @@ func Start(cfg Config, log *slog.Logger) (*Server, error) {
 	if window == 0 {
 		window = time.Minute
 	}
-	pipe := &alert.Pipeline{Store: st, Outbox: ob, Dedup: alert.NewDedup(window), Log: log, Metrics: am}
+	pipe := &alert.Pipeline{Store: st, Outbox: ob, Dedup: alert.NewDedup(window), Log: log, Metrics: am, Now: cfg.now}
+	beats := beatPolicy(cfg)
+	registerBeatMetrics(reg, st, beats, cfg.now)
 	s := &Server{cfg: cfg, log: log, st: st, outbox: ob, retention: ret}
 	ret.start()
 
@@ -225,12 +245,13 @@ func Start(cfg Config, log *slog.Logger) (*Server, error) {
 	}
 	s.AdminAddr = adminLn.Addr().String()
 	api := &admin.API{Key: cfg.AdminKey, Signer: signer, Store: st, PublicURL: cfg.PublicURL, URLPath: cfg.URLPath, Zone: cfg.Zone, Log: log,
-		Sealer: sealer, Egress: policy, Resolver: resolver, Metrics: reg, Wake: ob.Notify}
+		Sealer: sealer, Egress: policy, Resolver: resolver, Metrics: reg, Wake: ob.Notify, Beats: beats, Now: cfg.now}
 	s.adminSrv = &http.Server{Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second}
 	go s.serveHTTP(s.adminSrv, adminLn, "admin")
 
 	if cfg.DashboardAddr != "" {
-		d := &dashboard.Dashboard{Store: st, SessionKey: deriveKey(cfg.Key, "snare-dashboard-session-key-v1"), Dev: cfg.DashboardDev, TrustProxy: cfg.TrustProxy, Log: log}
+		d := &dashboard.Dashboard{Store: st, SessionKey: deriveKey(cfg.Key, "snare-dashboard-session-key-v1"), Dev: cfg.DashboardDev, TrustProxy: cfg.TrustProxy, Log: log,
+			Beats: beats, Now: cfg.now}
 		h, err := d.Handler()
 		if err != nil {
 			return cleanup(err)
@@ -260,6 +281,12 @@ func Start(cfg Config, log *slog.Logger) (*Server, error) {
 		go func() { _ = s.dnsTCP.ActivateAndServe() }()
 		<-started
 		<-started
+	}
+
+	if cfg.Heartbeat > 0 {
+		if err := s.startHeartbeat(signer); err != nil {
+			return cleanup(err)
+		}
 	}
 
 	log.Info("snare started", "callback", s.HTTPAddr, "admin", s.AdminAddr, "dns", s.DNSAddr, "dashboard", s.DashboardAddr,
@@ -328,6 +355,9 @@ func (s *Server) serveHTTP(srv *http.Server, ln net.Listener, name string) {
 
 // Shutdown stops listeners and the delivery loop, then closes the store.
 func (s *Server) Shutdown(ctx context.Context) {
+	if s.probe != nil {
+		s.probe.close() // before the listeners and the store it probes
+	}
 	for _, h := range []*http.Server{s.httpSrv, s.adminSrv, s.dashSrv} {
 		if h != nil {
 			_ = h.Shutdown(ctx)

@@ -100,6 +100,15 @@ func (s *Store) RecordHit(ctx context.Context, e Event, alert bool) (tok Token, 
 		tok = s.openToken(t)
 	}
 	e.TenantID = tok.TenantID
+	if found && tok.Kind == KindHeartbeat { // a heartbeat stops here (M11 §1)
+		if err := recordBeat(ctx, tx, tok.TenantID, e); err != nil {
+			return Token{}, Event{}, false, false, err
+		}
+		if err := tx.Commit(); err != nil {
+			return Token{}, Event{}, false, false, err
+		}
+		return tok, Event{TenantID: tok.TenantID, TokenID: e.TokenID, Channel: e.Channel, At: e.At}, true, false, nil
+	}
 	if found && tok.Disabled { // recorded for the trail, never alerted (M4e §1)
 		e.Muted = true
 		alert = false

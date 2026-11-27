@@ -179,6 +179,18 @@ func (s *Signer) Mint() (tok string, id string, err error) {
 	if _, err := rand.Read(raw); err != nil {
 		return "", "", err
 	}
+	tok, id = s.encode(raw)
+	return tok, id, nil
+}
+
+// Derive returns a token whose id is an HMAC of name under the signing key: the same token
+// for the same key and name, unguessable without the key. The server uses it for its own
+// heartbeat (docs/M11-heartbeat.md §1), so restarts don't mint new tokens.
+func (s *Signer) Derive(name string) (tok string, id string) {
+	return s.encode(macWith(s.key, "snare-derived-id-v1", []byte(name))[:idBytes])
+}
+
+func (s *Signer) encode(raw []byte) (tok string, id string) {
 	body := append(append([]byte{}, raw...), s.mac(v2Domain, raw)...)
 	var enc string
 	if s.encoding == Hex {
@@ -186,7 +198,7 @@ func (s *Signer) Mint() (tok string, id string, err error) {
 	} else {
 		enc = strings.ToLower(b32.EncodeToString(body))
 	}
-	return s.prefix + enc, idString(raw), nil
+	return s.prefix + enc, idString(raw)
 }
 
 // verifyBody checks a bare v2 body (no prefix) under the current key only.

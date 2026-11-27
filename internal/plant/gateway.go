@@ -14,6 +14,7 @@ import (
 	"github.com/danielguillaumont/snare/internal/admin"
 	"github.com/danielguillaumont/snare/internal/decoys"
 	"github.com/danielguillaumont/snare/internal/gateway"
+	"github.com/danielguillaumont/snare/internal/store"
 )
 
 // Fingerprinter fetches the tenant's token fingerprints (docs/M6-gateway.md §3).
@@ -38,6 +39,9 @@ type GatewayOptions struct {
 	Contain    string // "", "exfiltration" or "recon" (docs/M8-containment.md); "" is off
 	// ProvenanceNames sends each input's source name with touches (docs/M9-provenance.md §3).
 	ProvenanceNames bool
+	// Heartbeat is the gateway's heartbeat interval (docs/M11-heartbeat.md): "" for the
+	// default 15m, "0" for none.
+	Heartbeat string
 }
 
 // Gateway mints one decoy token per catalog decoy, fetches fingerprints of every tripwire in
@@ -84,6 +88,18 @@ func Gateway(c GatewayClient, o GatewayOptions) ([]Entry, string, error) {
 			cfg.CallbackURL, cfg.URLPath = r.CallbackURL, urlPathOf(r)
 		}
 		entries = append(entries, Entry{Type: "gateway", Path: o.ConfigPath, Label: label, Kind: "decoy_tool", TokenID: r.ID, PlantedAt: time.Now().UTC()})
+	}
+	if every := o.Heartbeat; every != "0" {
+		if every == "" {
+			every = "15m" // gateway.DefaultHeartbeat
+		}
+		label := "gateway heartbeat: " + filepath.Base(absOr(o.ConfigPath))
+		r, err := mt.Mint(store.KindHeartbeat, label, "planted by snare plant gateway; its touches prove the gateway can reach Snare and never alert")
+		if err != nil {
+			return nil, "", err
+		}
+		cfg.Heartbeat = &gateway.Heartbeat{Token: r.Token, Every: every}
+		entries = append(entries, Entry{Type: "gateway", Path: o.ConfigPath, Label: label, Kind: store.KindHeartbeat, TokenID: r.ID, PlantedAt: time.Now().UTC()})
 	}
 	if !o.DryRun {
 		if _, err := fetch(c, &cfg); err != nil {

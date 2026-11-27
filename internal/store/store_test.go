@@ -238,6 +238,23 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				t.Fatalf("A's own correlation: %+v %v", c, err)
 			}
 		},
+		"ListHeartbeats": func(t *testing.T, f fixture) {
+			for _, v := range []TenantStore{f.a, f.b} {
+				id := "hb_" + v.TenantID()
+				if err := v.CreateToken(ctx, Token{ID: id, Kind: KindHeartbeat, Label: "heartbeat"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, _, _, _, err := f.s.RecordHit(ctx, Event{TokenID: "hb_" + f.b.TenantID(), Channel: "dns", SourceIP: "203.0.113.9", At: time.Now()}, true); err != nil {
+				t.Fatal(err)
+			}
+			if hs, _ := f.a.ListHeartbeats(ctx); len(hs) != 0 {
+				t.Fatalf("A sees B's heartbeat: %+v", hs)
+			}
+			if hs, _ := f.b.ListHeartbeats(ctx); len(hs) != 1 || hs[0].Channel != BeatDNS {
+				t.Fatalf("B's own: %+v", hs)
+			}
+		},
 		"ReleaseSession": func(t *testing.T, f fixture) {
 			if _, _, _, _, err := f.s.RecordHit(ctx, Event{TokenID: "tok_b", Channel: "http", SourceIP: "203.0.113.9",
 				Session: "sb0000000001", Containment: ContainBlocked, At: time.Now()}, false); err != nil {

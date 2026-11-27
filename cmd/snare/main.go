@@ -22,6 +22,7 @@
 //	snare plant gateway -config F         write a gateway config (decoys + fingerprints)
 //	snare gateway -config F -- CMD...     run the gateway in front of a real MCP server
 //	snare gateway release -config F -note T  lift a containment freeze (audited)
+//	snare heartbeat                       when each channel (http, dns, gateway) was last verified
 //	snare provenance find -hash H [dirs]  name the file a touch's input fingerprint came from
 //	snare decoys [-all]                   print decoy names as JSON (for the eval harness)
 package main
@@ -37,8 +38,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -80,6 +81,8 @@ func main() {
 		err = events(os.Args[2:])
 	case "incidents":
 		err = incidentsCmd(os.Args[2:])
+	case "heartbeat":
+		err = heartbeatCmd(os.Args[2:])
 	case "provenance":
 		err = provenanceCmd(os.Args[2:])
 	case "triage":
@@ -130,10 +133,11 @@ func usage() {
                      [-style snake|camel|kebab] [-seed N] [-names F] [-catalog-names]
   snare plant gateway [-dry-run] [-manifest F] -config F [-style auto|snake|camel|kebab|catalog]
                      [-seed N] [-names F] [-exclude a,b] [-contain exfiltration|recon]
-                     [-provenance-names]
+                     [-provenance-names] [-heartbeat 15m|0]
                      | -refresh -config F
   snare gateway -config F [-v] -- <real server command> [args]
   snare gateway release -config F -note TEXT
+  snare heartbeat
   snare provenance find -hash FINGERPRINT [dir ...]
   snare decoy-mcp -config F
   snare decoys [-seed N -style S -names F [-screen] | -all | -table]
@@ -247,6 +251,7 @@ func plantCmd(args []string) error {
 	catalogNames := fs.Bool("catalog-names", false, "mcp: use the public catalog names (easy to fingerprint; not recommended)")
 	refresh := fs.Bool("refresh", false, "gateway: re-fetch fingerprints for an existing -config")
 	contain := fs.String("contain", "", "gateway: opt in to containment at this stage: exfiltration or recon (off by default)")
+	heartbeat := fs.String("heartbeat", "15m", "gateway: heartbeat interval (at least 1m), or 0 for none")
 	provNames := fs.Bool("provenance-names", false, "gateway: send each input's path or URL argument with touches (off by default)")
 	file := fs.String("file", "", "prompt: system prompt file to append the passage to (default: print it)")
 	count := fs.Int("count", plant.DefaultMemoryCount, "memory: number of records to write")
@@ -344,7 +349,7 @@ func plantCmd(args []string) error {
 			return nil
 		}
 		ex := strings.FieldsFunc(*exclude, func(r rune) bool { return r == ',' || r == ' ' })
-		gwo := plant.GatewayOptions{Options: opts, ConfigPath: *config, Exclude: ex, Style: "auto", Contain: *contain, ProvenanceNames: *provNames}
+		gwo := plant.GatewayOptions{Options: opts, ConfigPath: *config, Exclude: ex, Style: "auto", Contain: *contain, ProvenanceNames: *provNames, Heartbeat: *heartbeat}
 		if styleSet {
 			gwo.Style = *style
 		}

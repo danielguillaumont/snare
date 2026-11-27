@@ -50,6 +50,9 @@ type Config struct {
 	Contain *Contain `json:"contain,omitempty"`
 	// Provenance configures the input ledger (docs/M9-provenance.md).
 	Provenance *Provenance `json:"provenance,omitempty"`
+	// Heartbeat sends a synthetic touch at start and on an interval (docs/M11-heartbeat.md).
+	// Nil is off.
+	Heartbeat *Heartbeat `json:"heartbeat,omitempty"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -91,6 +94,11 @@ func (c Config) Validate() error {
 	}
 	if len(c.Fingerprints) > 0 && len(c.Salt) < 16 {
 		return errors.New("fingerprints need a salt of at least 16 characters")
+	}
+	if c.Heartbeat != nil {
+		if _, err := c.Heartbeat.interval(); err != nil {
+			return err
+		}
 	}
 	if c.Contain != nil {
 		return c.Contain.validate()
@@ -151,6 +159,12 @@ func (g *Gateway) init() {
 // When the client closes its input, the server's input is closed.
 func (g *Gateway) Run(ctx context.Context, clientIn io.Reader, clientOut io.Writer, serverIn io.WriteCloser, serverOut io.Reader) error {
 	g.init()
+	stop := make(chan struct{})
+	if hb := g.Cfg.Heartbeat; hb != nil {
+		if every, err := hb.interval(); err == nil {
+			go g.heartbeat(ctx, every, stop)
+		}
+	}
 	go func() {
 		err := eachLine(clientIn, func(line []byte) error { return g.fromClient(ctx, line, clientOut, serverIn) })
 		if err != nil {
@@ -159,6 +173,7 @@ func (g *Gateway) Run(ctx context.Context, clientIn io.Reader, clientOut io.Writ
 		_ = serverIn.Close()
 	}()
 	err := eachLine(serverOut, func(line []byte) error { return g.write(clientOut, g.fromServer(line)) })
+	close(stop)
 	done := make(chan struct{})
 	go func() { g.wg.Wait(); close(done) }()
 	select {
@@ -496,11 +511,14 @@ func (g *Gateway) fire(ctx context.Context, tok, layer, tool, action string) {
 	if p == "//" {
 		p = "/"
 	}
-	q := url.Values{"layer": {layer}, "tool": {contextSafe(tool)}, "session": {g.Session}}
-	if action != "" {
-		q.Set("contain", action)
+	q := url.Values{"layer": {layer}, "session": {g.Session}}
+	if layer != layerHeartbeat { // a heartbeat is about the path, not the agent: no tool, no ledger
+		q.Set("tool", contextSafe(tool))
+		if action != "" {
+			q.Set("contain", action)
+		}
+		g.ledgerParams(q)
 	}
-	g.ledgerParams(q)
 	u := strings.TrimRight(g.Cfg.CallbackURL, "/") + p + url.PathEscape(tok) + "?" + q.Encode()
 	g.wg.Add(1)
 	go func() {

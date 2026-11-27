@@ -276,6 +276,9 @@ func (s *Store) migrate() error {
 	if _, err := s.db.Exec(outboxSchema); err != nil {
 		return fmt.Errorf("store: outbox schema: %w", err)
 	}
+	if _, err := s.db.Exec(heartbeatSchema); err != nil {
+		return fmt.Errorf("store: heartbeat schema: %w", err)
+	}
 	if _, err := s.db.Exec(indexes); err != nil {
 		return fmt.Errorf("store: indexes: %w", err)
 	}
@@ -330,6 +333,7 @@ type TenantStore interface {
 	ListIncidents(ctx context.Context, limit int) ([]Incident, error)
 	GetIncident(ctx context.Context, id int64) (Incident, []Event, error)
 	ReleaseSession(ctx context.Context, session, note string) (int, error)
+	ListHeartbeats(ctx context.Context) ([]Heartbeat, error)
 }
 
 type tenantView struct {

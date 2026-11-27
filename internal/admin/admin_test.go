@@ -278,6 +278,7 @@ var success = map[string]int{
 	"POST /api/events/{id}/triage":    204,
 	"GET /api/incidents":              200,
 	"GET /api/incidents/{id}":         200,
+	"GET /api/heartbeats":             200,
 	"POST /api/sessions/{id}/release": 200,
 	"POST /api/fingerprints":          200,
 	"GET /api/audit":                  200,

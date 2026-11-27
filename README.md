@@ -128,7 +128,8 @@ sha256sum -c SHA256SUMS --ignore-missing
 | M8 containment (opt-in): the leaking call is blocked, the session frozen, release audited | ✅ Built ([results](docs/M8-containment.md#results)) |
 | M9 provenance: the alert says what the agent read just before it touched a trap | ✅ Built ([results](docs/M9-provenance.md#results)) |
 | M10 context canaries: a leaked system prompt or acted-on memory is a touch | ✅ Built ([results](docs/M10-context-canaries.md#results)) |
-| M11–M14 Snare in depth: heartbeat, adaptive deception, proof, first run | Planned ([docs/DEPTH.md](docs/DEPTH.md)) |
+| M11 heartbeat: each path (HTTP, DNS, gateway) shows when it was last verified, and goes stale when it breaks | ✅ Built ([results](docs/M11-heartbeat.md#results)) |
+| M12–M14 Snare in depth: adaptive deception, proof, first run | Planned ([docs/DEPTH.md](docs/DEPTH.md)) |
 | M5 design partners | Not started |
 
 Full plan and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).

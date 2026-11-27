@@ -90,6 +90,11 @@ exist, so it measures the whole design once. M14 last, because it packages the r
 `snare demo` gains each feature as it lands, so the repository shows progress all the way
 through.
 
+**Changed in M11 (2026-11-26):** heartbeats stop at the store instead of reaching sinks
+"marked as tests". Delivery health is measured by the outbox (M4c), so sending synthetic
+findings to every SIEM and chat channel would only add noise and a filter every rule must
+remember ([M11](M11-heartbeat.md#decision-heartbeats-dont-reach-sinks)).
+
 **Parked, waiting on Daniel:** applying the AWS IaC (M4) and design partners (M5).
 
 ## What we deliberately won't build

@@ -165,6 +165,30 @@ func (g *gaugeFunc) write(w io.Writer) {
 	fmt.Fprintf(w, "%s %s\n", g.name, fmtFloat(g.f()))
 }
 
+type gaugeVecFunc struct {
+	name, help, label string
+	f                 func() map[string]float64
+}
+
+// GaugeVecFunc registers a gauge with one label, computed at scrape time: f returns a value
+// per label value. Label values must come from a small fixed set.
+func (r *Registry) GaugeVecFunc(name, help, label string, f func() map[string]float64) {
+	r.add(name, &gaugeVecFunc{name: name, help: help, label: label, f: f})
+}
+
+func (g *gaugeVecFunc) write(w io.Writer) {
+	header(w, g.name, g.help, "gauge")
+	vals := g.f()
+	ks := make([]string, 0, len(vals))
+	for k := range vals {
+		ks = append(ks, k)
+	}
+	sort.Strings(ks)
+	for _, k := range ks {
+		fmt.Fprintf(w, "%s%s %s\n", g.name, labelString([]string{g.label}, []string{k}), fmtFloat(vals[k]))
+	}
+}
+
 // ----------------------------------------------------------------------------- histogram
 
 type Histogram struct {

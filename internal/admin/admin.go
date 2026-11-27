@@ -33,6 +33,7 @@ var Kinds = map[string]bool{
 	"decoy_tool": true, "honey_credential": true, "canary_doc": true,
 	"canary_url": true, "canary_instruction": true, "other": true,
 	"prompt_canary": true, "memory_canary": true,
+	store.KindHeartbeat: true, // touches are heartbeats, never alerts (docs/M11-heartbeat.md)
 }
 
 // TenantHeader lets the operator key act on one tenant's data.
@@ -58,6 +59,10 @@ type API struct {
 	// outbox after a manual retry.
 	Metrics *metrics.Registry
 	Wake    func()
+
+	// Beats rates heartbeat channels (M11). Now is a clock for tests.
+	Beats store.BeatPolicy
+	Now   func() time.Time
 }
 
 type MintRequest struct {
@@ -130,6 +135,7 @@ func Routes() []Route {
 		{"GET /api/events/export", AccessViewer, h((*API).exportEvents)},
 		{"POST /api/events/{id}/triage", AccessAdmin, h((*API).triageEvent)},
 		{"GET /api/incidents", AccessViewer, h((*API).listIncidents)},
+		{"GET /api/heartbeats", AccessViewer, h((*API).listHeartbeats)},
 		{"GET /api/incidents/{id}", AccessViewer, h((*API).getIncident)},
 		{"POST /api/sessions/{id}/release", AccessAdmin, h((*API).releaseSession)},
 		{"GET /api/sinks", AccessViewer, h((*API).listSinks)},
@@ -591,6 +597,22 @@ func (a *API) testSink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+}
+
+// ---------------------------------------------------------------------------- heartbeat
+
+// listHeartbeats rates the tenant's heartbeat channels (docs/M11-heartbeat.md §2).
+func (a *API) listHeartbeats(w http.ResponseWriter, r *http.Request) {
+	hs, err := a.view(r).ListHeartbeats(r.Context())
+	if err != nil {
+		a.fail(w, "list heartbeats", err)
+		return
+	}
+	now := time.Now
+	if a.Now != nil {
+		now = a.Now
+	}
+	writeJSON(w, http.StatusOK, nonNil(a.Beats.Status(hs, now().UTC())))
 }
 
 // --------------------------------------------------------------------------- audit
