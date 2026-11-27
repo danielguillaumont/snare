@@ -226,6 +226,12 @@ snare gateway pins -config gw.json -accept send_email
 
 Turn either warning off when planting, with `-exposure=false` or `-integrity=false`.
 
+A gateway config planted before 0.9 has neither warning. Add them, then restart the gateway:
+
+```sh
+snare plant gateway -refresh -config gw.json
+```
+
 ## 2. Confirm a tripwire is live without paging anyone
 
 You want to know that a touch reaches Snare and your alerting before an attacker tests it
