@@ -27,7 +27,8 @@ Each catalog decoy belongs to exactly one profile, named for the objective it tr
 
 - `-profile` takes a comma-separated list (`credentials,data`) or `all`.
 - `-exclude` still removes single decoys after the profile is applied.
-- The profile is written into the config, so `snare plant gateway -refresh` keeps it.
+- Configs list their decoys explicitly, so `snare plant gateway -refresh` keeps whatever was
+  planted. No profile field is stored (see the changelog).
 - An unknown profile or decoy name is an error.
 
 **Why these four by default:** they are the only decoys a credential hunter has called in 1,006
@@ -81,8 +82,7 @@ a narrower exposure. That is a judgment, stated so it can be challenged.
   - the profiles partition the catalog exactly;
   - selection order is stable;
   - unknown names are errors.
-- `plant gateway` and `plant mcp`: a `-profile` flag (default `all`) and the profile stored in
-  the config.
+- `plant gateway` and `plant mcp`: a `-profile` flag (default `all`).
 - Harness:
   - the `credentials` environment;
   - a test that every run shows exactly the four;
@@ -92,9 +92,15 @@ a narrower exposure. That is a judgment, stated so it can be challenged.
 
 | Item | Status | Evidence |
 |---|---|---|
-| Mechanism | Not started | |
+| Mechanism | Done, $0 | `internal/decoys/profiles.go`, `internal/plant/profile_test.go`, `experiments/killtest/tests/test_m13b.py`; dry runs of all three arms |
 | Screen | Not run (needs approval) | |
 
 ## Changelog
 
 - 2026-11-26: design and criteria registered before implementation and before any run.
+- 2026-11-26 (mechanism, before any run): dropped "the profile is stored in the config". The
+  gateway and MCP configs already list every planted decoy by name, and `-refresh` only rotates
+  the salt, so a stored profile would duplicate that list and could drift from it. No change to
+  the screen or its criteria.
+- 2026-11-26 (mechanism, before any run): `adjacent3` has no honey file, as in M13, so B3's
+  "honey uses" applies to `benign3` only. Same as M13; recorded so the count isn't misread.

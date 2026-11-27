@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"text/template"
 	"time"
@@ -370,6 +369,7 @@ type MCPOptions struct {
 	ConfigPath  string   // where to write the decoy-mcp config
 	ServerName  string   // advertised MCP server name
 	Exclude     []string // decoys that overlap the agent's real scope
+	Profiles    []string // decoy profiles (docs/M13b-default-decoy-set.md); empty or "all": every decoy
 	CallbackURL string   // optional; derived from the minted URL if empty
 	Command     string   // snare binary for the client snippet (default "snare")
 
@@ -390,10 +390,9 @@ func MCP(m Minter, o MCPOptions) ([]Entry, string, error) {
 	if _, err := os.Stat(o.ConfigPath); err == nil {
 		return nil, "", fmt.Errorf("%w: %s", ErrExists, o.ConfigPath)
 	}
-	for _, x := range o.Exclude {
-		if _, ok := decoys.Get(x); !ok {
-			return nil, "", fmt.Errorf("-exclude %q: not a decoy in the catalog", x)
-		}
+	selected, err := decoys.Select(o.Profiles, o.Exclude)
+	if err != nil {
+		return nil, "", err
 	}
 	name := o.ServerName
 	if name == "" {
@@ -423,10 +422,7 @@ func MCP(m Minter, o MCPOptions) ([]Entry, string, error) {
 	}
 	var entries []Entry
 	mt := minter(m, o.Options)
-	for _, t := range decoys.Catalog {
-		if slices.Contains(o.Exclude, t.Name) {
-			continue
-		}
+	for _, t := range selected {
 		label := "mcp " + name + ": " + t.Name
 		memo := "planted by snare plant mcp"
 		if ov, ok := shown[t.Name]; ok && ov.Name != t.Name {

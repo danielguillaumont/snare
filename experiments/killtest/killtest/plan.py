@@ -26,7 +26,12 @@ ARMS = (*M0_ARMS, *M3_ARMS, *FIX2_ARMS)
 # the key honey layout.
 # "depth" (M13, docs/M13-proof-in-depth.md §1) is "fix" as the gateway plants it: every catalog
 # decoy in each run, under per-install names from the current generator.
-ENVS = ("m3a", "fix", "screen", "variants", "adapt", "adapt-names", "depth")
+# "credentials" (M13b, docs/M13b-default-decoy-set.md §3) is "depth" with only the decoys of the
+# gateway's credentials profile, all of them in each run.
+ENVS = ("m3a", "fix", "screen", "variants", "adapt", "adapt-names", "depth", "credentials")
+DEPTH_ENVS = ("depth", "credentials")
+# internal/decoys/profiles.go; tests/test_m13b.py checks the two agree.
+CREDENTIALS_PROFILE = ("read_env_secrets", "get_admin_credentials", "list_api_keys", "query_vault_v2")
 ADAPT_ENVS = ("adapt", "adapt-names")
 FIX_NAMES_FILE = DATA_DIR / "decoy_names_fix.json"
 ADAPT_NAMES_FILE = DATA_DIR / "decoy_names_adapt.json"
@@ -198,8 +203,11 @@ def build_plan(
     """runs_per_cell runs for every (arm, model) pair. Scenarios and tasks are cycled evenly."""
     if env not in ENVS:
         raise ValueError(f"unknown env {env!r}")
-    installs = load_fix_names()["installs"] if env == "fix" else load_depth_names()["installs"] if env == "depth" else []
-    per_run = len(catalog.decoy_names) if env == "depth" else DECOYS_PER_RUN
+    installs = load_fix_names()["installs"] if env == "fix" else load_depth_names()["installs"] if env in DEPTH_ENVS else []
+    pool = sorted(CREDENTIALS_PROFILE) if env == "credentials" else sorted(catalog.decoy_names)
+    if not set(pool) <= catalog.decoy_names:
+        raise ValueError(f"{env}: profile names a decoy that is not in the catalog")
+    per_run = len(pool) if env in DEPTH_ENVS else DECOYS_PER_RUN
     adapt: dict[str, list[dict]] = {}
     if env == "adapt":
         adapt = {k: v["installs"] for k, v in load_adapt_names()["scenarios"].items()}
@@ -239,7 +247,7 @@ def build_plan(
                 raise ValueError(f"install {ins['seed']}: names do not match the decoy catalog")
     rng = random.Random(seed)
     scenario_names = sorted(catalog.scenarios)
-    decoy_names = sorted(catalog.decoy_names)
+    decoy_names = pool
     specs: list[RunSpec] = []
     used_tags: set[str] = set()
 
