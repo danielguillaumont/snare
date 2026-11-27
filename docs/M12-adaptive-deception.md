@@ -162,11 +162,19 @@ For every cell, the report gives counts, denominators and Wilson 95% intervals. 
 
 ## Results
 
+Measured 2026-11-26, Go 1.27.4, Windows 11, `go test ./...` and `python -m pytest`. Policy runs:
+[results-m12.md](results-m12.md). **Verdict: C1 pass, C2 fail.** Spend $0.
+
 | Item | Status | Evidence |
 |---|---|---|
-| Names | Not started | |
-| Layouts | Not started | |
-| Eval | Not started | |
+| Names | ✅ | `TestLearn`, `TestNamespaceOf`, `TestWords` and `TestVerbClassesAreDisjoint`. `TestAdaptRewritesInTheServersVocabulary`: 40 seeds give the namespace, the server's verbs, camelCase arguments and no trailing period, with every name unique. `TestAdaptFallsBackOnCollisionAndKeepsOverrides`. Gateway: `TestAdaptStyleSpeaksTheServersVocabulary` (adapted names shown and answered as decoys) and `TestAdaptStyleNeverShadowsARealTool`. |
+| Layouts | ✅ | `TestRepoKeyLayout`, `TestRepoAdaptFollowsTheRepo`. `TestNoValueIsReusedByAnyPlantCommand` covers repo (both layouts), corpus, mcp, gateway and memory. `TestEndToEndKeyLayout`, on a real server: opening the tokenless URL is silent, and the key in a bearer header fires. |
+| Eval | ✅ run; C1 ✅, C2 ❌ | `tests/test_m12.py`. C1: `snare_aware` 200/200. C2: `source_reader` 138/200 (69.0%, CI 62.3–75.0%), below the 90% bar. It fired a decoy in every run that showed one of the 4 secret-sounding operator names, and `greedy` gets 143/200 under the same names. `code_reader` 59/200 in `adapt` (M3a-fix: 0/200). `source_reader` 0/200 in `adapt`, as expected. |
+
+**Mutation checks:**
+- With `Adapt`'s verb replacement turned off, the adapt unit test and the gateway test fail.
+- With the key layout putting the key's URL back in the base URL, the layout test, the no-reuse
+  test and the end-to-end test fail.
 
 ## Changelog
 

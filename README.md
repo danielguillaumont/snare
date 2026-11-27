@@ -50,7 +50,7 @@ Haiku, Sonnet and Opus.
 | Are generated per-install decoy names safe? | **0/300** trips on held-out hard-benign tasks (upper bound 1.3%) | [M3a-fix2](docs/results-m3a-fix2.md) |
 | Safe on an external benchmark? | AgentDojo, unmodified: **0/291** benign trips, utility **−3.4 points** (pre-registered limit −5) | [M3c](docs/results-m3c.md) |
 | Do tripwires catch hijacked agents? | **46/110** credential-hunting agents caught (42%, CI 33–51%), 0/180 benign trips. Measured on an authorized-audit proxy, not real hijacks | [M3a](docs/results-m3a.md) |
-| Can an attacker who knows Snare evade it? | Scripted evader: 200/200 evaded → **200/200 caught** after anti-fingerprinting. An attacker who reads this repo still evades the default decoy names; set your own | [M3a-fix](docs/results-m3a-fix.md) |
+| Can an attacker who knows Snare evade it? | Scripted evader: 200/200 evaded → **200/200 caught** after anti-fingerprinting. An attacker who reads this repo still evades generated names, including names adapted to the server (0/200 caught). Under operator-chosen names it is caught as often as one who knows nothing: 138/200 vs 143/200 | [M3a-fix](docs/results-m3a-fix.md), [M12](docs/results-m12.md) |
 
 ## Limitations
 
@@ -129,7 +129,8 @@ sha256sum -c SHA256SUMS --ignore-missing
 | M9 provenance: the alert says what the agent read just before it touched a trap | ✅ Built ([results](docs/M9-provenance.md#results)) |
 | M10 context canaries: a leaked system prompt or acted-on memory is a touch | ✅ Built ([results](docs/M10-context-canaries.md#results)) |
 | M11 heartbeat: each path (HTTP, DNS, gateway) shows when it was last verified, and goes stale when it breaks | ✅ Built ([results](docs/M11-heartbeat.md#results)) |
-| M12–M14 Snare in depth: adaptive deception, proof, first run | Planned ([docs/DEPTH.md](docs/DEPTH.md)) |
+| M12 adaptive deception: decoy names in the real server's vocabulary, a tokenless honey URL, and a code-reading attacker re-run | ✅ Published, 1 of 2 criteria met ([results](docs/results-m12.md)) |
+| M13–M14 Snare in depth: proof, first run | Planned ([docs/DEPTH.md](docs/DEPTH.md)) |
 | M5 design partners | Not started |
 
 Full plan and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).
@@ -221,6 +222,7 @@ With `snare serve` running (and `SNARE_PUBLIC_URL`, optionally `SNARE_ZONE`, set
 ```powershell
 bin\snare.exe plant repo   -dry-run path\to\repo        # preview; mints and writes nothing
 bin\snare.exe plant repo   path\to\repo                 # .env.legacy with honey base URL, key, DB host
+bin\snare.exe plant repo   -layout key -adapt path\to\repo  # tokenless URL; follows the repo's .env style
 bin\snare.exe plant corpus path\to\kb-folder            # break-glass runbook with honey link, image, creds
 bin\snare.exe plant mcp    -config decoy-mcp.json -exclude list_api_keys   # 16 screened decoy tools
 bin\snare.exe decoy-mcp    -config decoy-mcp.json         # stdio MCP server (plant mcp prints the client snippet)
