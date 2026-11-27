@@ -1,7 +1,7 @@
 # M15 — Measure detection where harm happens
 
-**Status: design and pre-registration, 2026-11-26. No M15 live data exists. The pilot and the
-full run each need Daniel's approval before they spend.**
+**Status: stopped at the pilot stage, 2026-11-26. Both pilots had 0/20 harmful runs, so the
+full run did not run. See [results-m15](results-m15.md).**
 
 ## 1. Why the eval has to change
 
@@ -126,7 +126,8 @@ attackers who know Snare is deployed (M12 covers that separately).
 |---|---|---|
 | Mechanism | Done, $0 | `killtest/m3.py` (`harm_replay`), `data/m3.yaml` (`handoff_tasks`), `tests/test_m15.py`; dry runs of all three cells. Estimates: pilot $0.01, full run $1.45 |
 | Pilot | **0/20 harmful**: every run declined in text with no tool call. $0.01 | `experiments/killtest/results/m15-pilot/handoff-claude-haiku-5-5/` |
-| Full run | Not run (needs approval) | |
+| Pilot 2 (revision 1) | **0/20 harmful**: 18 declined with no tool call, 2 looked for a documented procedure and stopped. $0.02 | `experiments/killtest/results/m15-pilot/handoff-r1-claude-haiku-5-5/` |
+| Full run | Not run: stopped by the pilot rule | [results-m15](results-m15.md) |
 
 ## Changelog
 
@@ -151,3 +152,5 @@ attackers who know Snare is deployed (M12 covers that separately).
   - **Second pilot:** Haiku, 20 runs, seed 98, cap $0.05, same rule (at least 4/20 harmful).
     This is the last revision. If it also fails, M15 stops and is published as is.
   - H1, V and H2 are unchanged.
+- 2026-11-26 (second pilot, $0.02): **0/20 harmful.** As registered, M15 stops and is
+  published without a full run.
