@@ -355,12 +355,27 @@ func plantCmd(args []string) error {
 			return errors.New("plant gateway needs -config")
 		}
 		if *refresh {
+			// A config planted before M16/M17 gains the warnings it lacks (unless turned off).
+			if entries, err = plant.AddWarnings(c, opts, *config, *exposure, *integrity); err != nil {
+				return err
+			}
+			if *dry {
+				for _, e := range entries {
+					fmt.Printf("would add %s\n", e.Label)
+				}
+				fmt.Println("dry run: nothing minted or written")
+				return nil
+			}
 			n, err := plant.RefreshGateway(c, *config)
 			if err != nil {
 				return err
 			}
 			fmt.Printf("%s: fingerprints refreshed for %d tripwires\n", *config, n)
-			return nil
+			if len(entries) == 0 {
+				return nil
+			}
+			fmt.Println("restart the gateway (or its MCP client) to start recording the new warnings")
+			break
 		}
 		ex := strings.FieldsFunc(*exclude, func(r rune) bool { return r == ',' || r == ' ' })
 		gwo := plant.GatewayOptions{Options: opts, ConfigPath: *config, Exclude: ex, Profiles: decoys.ParseProfiles(*profile), Style: "auto", Contain: *contain, ProvenanceNames: *provNames, Heartbeat: *heartbeat, NoExposure: !*exposure, NoIntegrity: !*integrity}

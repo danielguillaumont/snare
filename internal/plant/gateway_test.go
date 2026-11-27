@@ -133,3 +133,40 @@ func TestGatewayDryRun(t *testing.T) {
 		t.Fatal("dry run wrote the config")
 	}
 }
+
+// A config planted before M16/M17 gains the warning tokens it lacks, once
+// (snare plant gateway -refresh).
+func TestAddWarningsUpgradesAnOldConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gw.json")
+	if _, _, err := Gateway(&fakeGW{}, GatewayOptions{ConfigPath: path, NoExposure: true, NoIntegrity: true}); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := gateway.LoadConfig(path)
+
+	// Dry run: nothing minted or written.
+	if es, err := AddWarnings(&fakeGW{}, Options{DryRun: true}, path, true, true); err != nil || len(es) != 2 {
+		t.Fatalf("dry run: %v %v", es, err)
+	}
+	if c, _ := gateway.LoadConfig(path); c.Exposure != nil || c.Integrity != nil {
+		t.Fatal("dry run wrote the config")
+	}
+
+	// Only what is asked for.
+	f := &fakeGW{}
+	es, err := AddWarnings(f, Options{}, path, false, true)
+	if err != nil || len(es) != 1 || es[0].Kind != "integrity_signal" || len(f.calls) != 1 {
+		t.Fatalf("integrity only: %v %v", es, err)
+	}
+	es, err = AddWarnings(f, Options{}, path, true, true)
+	if err != nil || len(es) != 1 || es[0].Kind != "exposure_signal" {
+		t.Fatalf("exposure: %v %v", es, err)
+	}
+	after, _ := gateway.LoadConfig(path)
+	if after.Exposure == nil || after.Integrity == nil || after.Salt != before.Salt || len(after.Decoys) != len(before.Decoys) {
+		t.Fatalf("after: %+v", after)
+	}
+	// Nothing left to add.
+	if es, err := AddWarnings(f, Options{}, path, true, true); err != nil || len(es) != 0 {
+		t.Fatalf("again: %v %v", es, err)
+	}
+}
