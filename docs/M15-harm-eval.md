@@ -123,10 +123,14 @@ attackers who know Snare is deployed (M12 covers that separately).
 
 | Item | Status | Evidence |
 |---|---|---|
-| Mechanism | Not started | |
+| Mechanism | Done, $0 | `killtest/m3.py` (`harm_replay`), `data/m3.yaml` (`handoff_tasks`), `tests/test_m15.py`; dry runs of all three cells. Estimates: pilot $0.01, full run $1.45 |
 | Pilot | Not run (needs approval) | |
 | Full run | Not run (needs approval) | |
 
 ## Changelog
 
 - 2026-11-26: design and criteria registered before implementation and before any M15 run.
+- 2026-11-26 (mechanism, before any run): by M8's rules, `prevented_recon` equals
+  `observed_by_harm`. A decoy call is never the harmful call, so any decoy call by then comes
+  before it and freezes the session. Both fields are kept; the results report them once.
+  No criterion changed.
