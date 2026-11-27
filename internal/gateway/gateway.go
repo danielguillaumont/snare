@@ -45,6 +45,9 @@ type Config struct {
 
 	Salt         string   `json:"salt,omitempty"`
 	Fingerprints []string `json:"fingerprints,omitempty"`
+
+	// Contain turns on containment (docs/M8-containment.md). Nil is off, the default.
+	Contain *Contain `json:"contain,omitempty"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -55,6 +58,9 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if err := json.Unmarshal(b, &c); err != nil {
 		return c, fmt.Errorf("%s: %w", path, err)
+	}
+	if c.Contain != nil && c.Contain.StateFile == "" {
+		c.Contain.StateFile = path + ".frozen"
 	}
 	return c, c.Validate()
 }
@@ -84,6 +90,9 @@ func (c Config) Validate() error {
 	if len(c.Fingerprints) > 0 && len(c.Salt) < 16 {
 		return errors.New("fingerprints need a salt of at least 16 characters")
 	}
+	if c.Contain != nil {
+		return c.Contain.validate()
+	}
 	return nil
 }
 
@@ -102,6 +111,9 @@ type Gateway struct {
 	style   string            // resolved decoy style, fixed at the first tools/list reply
 	byName  map[string]string // shown decoy name -> catalog name
 	descs   map[string]string // catalog name -> description shown
+	frozen  bool              // contained (M8)
+	// persisted: the freeze is in the state file, so removing the file releases it.
+	persisted bool
 
 	outMu sync.Mutex // serializes writes to the client
 	wg    sync.WaitGroup
@@ -127,6 +139,7 @@ func (g *Gateway) init() {
 		}
 		g.matcher = token.NewMatcher(g.Cfg.Salt, set)
 	}
+	g.loadFreeze()
 }
 
 // Run relays until the server closes its output, then waits briefly for callbacks in flight.
@@ -198,6 +211,7 @@ func idKey(id json.RawMessage) string {
 // fromClient handles one client line: answers a decoy call, or inspects and forwards.
 func (g *Gateway) fromClient(ctx context.Context, line []byte, clientOut io.Writer, serverIn io.Writer) error {
 	t := bytes.TrimSpace(line)
+	contain := g.Cfg.Contain
 	if len(t) > 0 && t[0] == '{' {
 		var m message
 		if json.Unmarshal(t, &m) == nil {
@@ -210,14 +224,50 @@ func (g *Gateway) fromClient(ctx context.Context, line []byte, clientOut io.Writ
 				}
 			case "tools/call":
 				if canon, ok := g.decoyFor(m.Params.Name); ok && len(m.ID) > 0 {
-					g.fire(ctx, g.Cfg.Decoys[canon], "tool", m.Params.Name)
+					action := ""
+					if contain.onRecon() && g.freeze("recon", m.Params.Name) {
+						action = "frozen"
+					}
+					g.fire(ctx, g.Cfg.Decoys[canon], "tool", m.Params.Name, action)
 					return g.write(clientOut, decoyReply(m.ID))
+				}
+				if contain != nil {
+					return g.containCall(ctx, m, clientOut, serverIn, line)
 				}
 				g.inspect(ctx, m.Params.Arguments, m.Params.Name)
 			}
 		}
 	} else if bytes.Contains(t, []byte(`"tools/call"`)) {
+		if contain != nil && len(t) > 0 && t[0] == '[' {
+			if reply, handled := g.containBatch(ctx, t); handled {
+				if reply == nil {
+					return nil
+				}
+				return g.write(clientOut, reply)
+			}
+		}
 		g.inspect(ctx, t, "batch") // a batch is relayed whole; still look for honey values
+	}
+	_, err := serverIn.Write(line)
+	return err
+}
+
+// containCall handles a real tool call with containment on: blocked while frozen, and
+// blocked (then frozen) when it carries a honey value. Otherwise it is forwarded unchanged.
+func (g *Gateway) containCall(ctx context.Context, m message, clientOut, serverIn io.Writer, line []byte) error {
+	block := func() error {
+		if len(m.ID) == 0 {
+			return nil // a notification gets no reply
+		}
+		return g.write(clientOut, failedReply(m.ID))
+	}
+	if g.isFrozen() {
+		return block()
+	}
+	if body, ok := g.find(m.Params.Arguments); ok {
+		g.freeze("exfiltration", m.Params.Name)
+		g.fire(ctx, body, "egress", m.Params.Name, "blocked")
+		return block()
 	}
 	_, err := serverIn.Write(line)
 	return err
@@ -399,24 +449,31 @@ func decoyReply(id json.RawMessage) []byte {
 // inspect looks for honey values in a real tool call's arguments. It never blocks the call,
 // and a failure here never affects relaying.
 func (g *Gateway) inspect(ctx context.Context, args []byte, tool string) {
+	if body, ok := g.find(args); ok {
+		g.fire(ctx, body, "egress", tool, "")
+	}
+}
+
+// find returns the honey value in args, if any. A failure is treated as no match.
+func (g *Gateway) find(args []byte) (body string, ok bool) {
 	if g.matcher == nil || len(args) == 0 {
-		return
+		return "", false
 	}
 	defer func() {
 		if r := recover(); r != nil {
 			g.Log.Error("inspection failed; call relayed", "panic", r)
+			body, ok = "", false
 		}
 	}()
-	if body, ok := g.matcher.Find(string(args)); ok {
-		g.fire(ctx, body, "egress", tool)
-	}
+	return g.matcher.Find(string(args))
 }
 
 // DefaultURLPath matches the callback server's default (admin.DefaultURLPath).
 const DefaultURLPath = "/v1/"
 
-// fire sends a callback carrying tok and the session context, in the background.
-func (g *Gateway) fire(ctx context.Context, tok, layer, tool string) {
+// fire sends a callback carrying tok and the session context, in the background. action
+// is the containment taken ("blocked", "frozen") or empty.
+func (g *Gateway) fire(ctx context.Context, tok, layer, tool, action string) {
 	p := g.Cfg.URLPath
 	if p == "" {
 		p = DefaultURLPath
@@ -426,6 +483,9 @@ func (g *Gateway) fire(ctx context.Context, tok, layer, tool string) {
 		p = "/"
 	}
 	q := url.Values{"layer": {layer}, "tool": {contextSafe(tool)}, "session": {g.Session}}
+	if action != "" {
+		q.Set("contain", action)
+	}
 	u := strings.TrimRight(g.Cfg.CallbackURL, "/") + p + url.PathEscape(tok) + "?" + q.Encode()
 	g.wg.Add(1)
 	go func() {
