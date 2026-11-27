@@ -87,3 +87,24 @@ func TestLoadManifest(t *testing.T) {
 		t.Error("bad JSON accepted")
 	}
 }
+
+// Warning kinds (M16, M17) are mentioned, never counted as arming a layer.
+func TestCoverageNotesWarnings(t *testing.T) {
+	cov := Coverage([]Planted{
+		{Type: "gateway", Kind: "decoy_tool", Path: "gw.json"},
+		{Type: "gateway", Kind: "exposure_signal", Path: "gw.json"},
+		{Type: "gateway", Kind: "integrity_signal", Path: "gw.json"},
+	})
+	if cov[0].Armed || !strings.Contains(cov[0].Note, "definition changes") {
+		t.Errorf("ingest: %+v", cov[0])
+	}
+	if cov[3].Armed || !strings.Contains(cov[3].Note, "honey value reaches") {
+		t.Errorf("data: %+v", cov[3])
+	}
+	if Armed(cov) != 2 { // tool and egress
+		t.Errorf("armed %d: %+v", Armed(cov), cov)
+	}
+	if !strings.Contains(cov[4].Note, "no honey values") {
+		t.Errorf("egress note lost: %+v", cov[4])
+	}
+}

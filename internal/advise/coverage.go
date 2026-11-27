@@ -86,6 +86,18 @@ func Coverage(ps []Planted) []LayerCoverage {
 		count["prompt_canary"]+count["memory_canary"] == 0 {
 		out[4].Note = "the gateway has no honey values to look for: plant data tripwires, then snare plant gateway -refresh"
 	}
+	// Warnings (M16, M17) never page on their own, so they don't arm a layer; say they are there.
+	warn := func(i int, kind, what string) {
+		if count[kind] == 0 {
+			return
+		}
+		if out[i].Note != "" {
+			out[i].Note += "; "
+		}
+		out[i].Note += what
+	}
+	warn(0, "integrity_signal", "warnings when a real tool's definition changes (not alerts)")
+	warn(3, "exposure_signal", "warnings when a honey value reaches the agent (not alerts)")
 	return out
 }
 
