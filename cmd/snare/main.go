@@ -130,10 +130,10 @@ func usage() {
   snare plant corpus [-dry-run] [-manifest F] [-with-instruction] <dir>
   snare plant prompt [-dry-run] [-manifest F] [-seed N] [-file F]
   snare plant memory [-dry-run] [-manifest F] [-seed N] [-count N] [-format jsonl|md] <dir>
-  snare plant mcp    [-dry-run] [-manifest F] -config F [-name N] [-exclude a,b]
+  snare plant mcp    [-dry-run] [-manifest F] -config F [-name N] [-profile P] [-exclude a,b]
                      [-style snake|camel|kebab] [-seed N] [-names F] [-catalog-names]
   snare plant gateway [-dry-run] [-manifest F] -config F [-style auto|adapt|snake|camel|kebab|catalog]
-                     [-seed N] [-names F] [-exclude a,b] [-contain exfiltration|recon]
+                     [-seed N] [-names F] [-profile P] [-exclude a,b] [-contain exfiltration|recon]
                      [-provenance-names] [-heartbeat 15m|0]
                      | -refresh -config F
   snare gateway -config F [-v] -- <real server command> [args]
@@ -247,7 +247,8 @@ func plantCmd(args []string) error {
 	adaptRepo := fs.Bool("adapt", false, "repo: follow the dotenv files already in the directory (variable prefix, quoting)")
 	config := fs.String("config", "", "mcp: path for the decoy-mcp config file")
 	name := fs.String("name", "internal-ops", "mcp: server name advertised to clients")
-	exclude := fs.String("exclude", "", "mcp: comma-separated decoys to skip (ones overlapping the agent's real job)")
+	exclude := fs.String("exclude", "", "mcp, gateway: comma-separated decoys to skip (ones overlapping the agent's real job)")
+	profile := fs.String("profile", "all", "mcp, gateway: decoy profiles to plant: all, or a comma-separated list of credentials, data, control")
 	style := fs.String("style", "snake", "decoy naming style. mcp: snake, camel or kebab. gateway: auto (default), adapt (the real server's vocabulary), snake, camel, kebab or catalog")
 	seed := fs.String("seed", "", "mcp: seed for per-install decoy names (default: random)")
 	namesFile := fs.String("names", "", "mcp: JSON file {catalog_name: {name, description}} of your own decoy names")
@@ -325,7 +326,7 @@ func plantCmd(args []string) error {
 				ex = append(ex, x)
 			}
 		}
-		mo := plant.MCPOptions{Options: opts, ConfigPath: *config, ServerName: *name, Exclude: ex}
+		mo := plant.MCPOptions{Options: opts, ConfigPath: *config, ServerName: *name, Exclude: ex, Profiles: decoys.ParseProfiles(*profile)}
 		if mo.Seed, mo.Overrides, err = nameOptions(*seed, *namesFile); err != nil {
 			return err
 		}
@@ -352,7 +353,7 @@ func plantCmd(args []string) error {
 			return nil
 		}
 		ex := strings.FieldsFunc(*exclude, func(r rune) bool { return r == ',' || r == ' ' })
-		gwo := plant.GatewayOptions{Options: opts, ConfigPath: *config, Exclude: ex, Style: "auto", Contain: *contain, ProvenanceNames: *provNames, Heartbeat: *heartbeat}
+		gwo := plant.GatewayOptions{Options: opts, ConfigPath: *config, Exclude: ex, Profiles: decoys.ParseProfiles(*profile), Style: "auto", Contain: *contain, ProvenanceNames: *provNames, Heartbeat: *heartbeat}
 		if styleSet {
 			gwo.Style = *style
 		}

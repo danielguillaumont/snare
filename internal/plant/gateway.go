@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"time"
 
 	"github.com/danielguillaumont/snare/internal/admin"
@@ -32,7 +31,8 @@ type GatewayOptions struct {
 	Options
 	ConfigPath string
 	Exclude    []string
-	Style      string // auto (default), adapt, snake, camel, kebab or catalog
+	Profiles   []string // decoy profiles (docs/M13b-default-decoy-set.md); empty or "all": every decoy
+	Style      string   // auto (default), adapt, snake, camel, kebab or catalog
 	Seed       uint64
 	Overrides  map[string]decoys.Override
 	Command    string // snare binary for the client snippet (default "snare")
@@ -54,10 +54,9 @@ func Gateway(c GatewayClient, o GatewayOptions) ([]Entry, string, error) {
 	if _, err := os.Stat(o.ConfigPath); err == nil {
 		return nil, "", fmt.Errorf("%w: %s", ErrExists, o.ConfigPath)
 	}
-	for _, x := range o.Exclude {
-		if _, ok := decoys.Get(x); !ok {
-			return nil, "", fmt.Errorf("-exclude %q: not a decoy in the catalog", x)
-		}
+	selected, err := decoys.Select(o.Profiles, o.Exclude)
+	if err != nil {
+		return nil, "", err
 	}
 	if o.Style == "" {
 		o.Style = "auto"
@@ -74,10 +73,7 @@ func Gateway(c GatewayClient, o GatewayOptions) ([]Entry, string, error) {
 	}
 	mt := minter(c, o.Options)
 	var entries []Entry
-	for _, t := range decoys.Catalog {
-		if slices.Contains(o.Exclude, t.Name) {
-			continue
-		}
+	for _, t := range selected {
 		label := "gateway decoy: " + t.Name
 		r, err := mt.Mint("decoy_tool", label, "planted by snare plant gateway; shown inside the wrapped server's tool list")
 		if err != nil {

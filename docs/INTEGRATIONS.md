@@ -34,6 +34,13 @@ snare plant mcp -dry-run -config decoy-mcp.json -exclude list_api_keys
 snare plant mcp -config decoy-mcp.json -exclude list_api_keys -style snake
 ```
 
+Both `plant mcp` and `plant gateway` plant all 17 catalog decoys by default. `-profile` narrows
+that to the objectives you want trapped: `credentials` (4 decoys), `data` (7) or `control` (6),
+comma-separated. `-exclude` still applies on top. In our eval, the full list made one model
+decline an authorized task three times as often as a short list did
+([results-m13](results-m13.md)), so a smaller set is worth considering. Whether `credentials`
+should become the default is being tested in [M13b](M13b-default-decoy-set.md).
+
 `plant mcp` writes `decoy-mcp.json` and prints a client entry like this, with the absolute
 paths of your `snare` binary and config file:
 
