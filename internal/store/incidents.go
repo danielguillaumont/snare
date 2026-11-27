@@ -14,11 +14,12 @@ import (
 
 // Layers: where in the agent's path a tripwire sits.
 const (
-	LayerIngest = "ingest"
-	LayerTool   = "tool"
-	LayerData   = "data"
-	LayerEgress = "egress"
-	LayerUse    = "use"
+	LayerIngest  = "ingest"
+	LayerContext = "context" // system prompt and memory (M10)
+	LayerTool    = "tool"
+	LayerData    = "data"
+	LayerEgress  = "egress"
+	LayerUse     = "use"
 )
 
 // Stages: what a touch proves about the agent, in kill-chain order.
@@ -50,6 +51,8 @@ func Classify(kind, via string) (layer, stage string) {
 	switch kind {
 	case "canary_instruction":
 		return LayerIngest, StageSteered
+	case "prompt_canary", "memory_canary": // docs/M10-context-canaries.md §1
+		return LayerContext, StageSteered
 	case "decoy_tool":
 		return LayerTool, StageRecon
 	}

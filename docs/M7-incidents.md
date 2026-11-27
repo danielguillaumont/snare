@@ -110,8 +110,8 @@ collection, but the incident has already reached use, so the touch stays Critica
 
 - **MITRE ATLAS / ATT&CK technique ids in `finding_info.attacks`.** The mapping has to be
   checked against the current ATLAS release before Snare claims it.
-- **Context-layer tripwires (M10).** Until they exist, the context layer always reports
-  unarmed.
+- **Context-layer tripwires (M10).** Until they existed, the context layer always reported
+  unarmed. They are now built ([M10](M10-context-canaries.md)).
 
 ## Exit criterion
 
