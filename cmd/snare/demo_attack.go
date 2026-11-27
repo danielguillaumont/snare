@@ -133,6 +133,23 @@ func runAttack(ctx context.Context, c *admin.Client, dir string, out io.Writer) 
 		return call("tools/call", map[string]any{"name": name, "arguments": args})
 	}
 	isError := func(r map[string]any) bool { b, _ := r["isError"].(bool); return b }
+	// Gateway callbacks are sent in the background, so touches a few milliseconds apart can
+	// arrive out of order. The scripted agent waits for each touch to be recorded before its
+	// next step, so the timeline is in the order the agent acted.
+	recorded := func(n int) error {
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+			evs, err := c.Events("", 50)
+			if err != nil {
+				return err
+			}
+			if len(evs) >= n {
+				return nil
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("touch %d was not recorded", n)
+			}
+		}
+	}
 
 	if _, err := call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "demo-agent", "version": "1"}}); err != nil {
 		return st, err
@@ -164,8 +181,14 @@ func runAttack(ctx context.Context, c *admin.Client, dir string, out io.Writer) 
 	if _, err := tool(st.Decoy, map[string]string{}); err != nil {
 		return st, err
 	}
+	if err := recorded(1); err != nil {
+		return st, err
+	}
 	step("2. calls " + st.Decoy + ", looking for keys: it is a decoy")
 	if _, err := tool("read_file", map[string]string{"path": honeyEnv}); err != nil {
+		return st, err
+	}
+	if err := recorded(2); err != nil {
 		return st, err
 	}
 	step("3. reads " + honeyEnv + " and finds PAYMENTS_API_KEY: a honey credential, so the gateway records a warning")
