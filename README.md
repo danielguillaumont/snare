@@ -33,7 +33,7 @@ before making claims.
 3. **Alert.** The hit becomes an OCSF 1.3 Detection Finding. It is routed to a signed webhook,
    Splunk, Elastic or Microsoft Sentinel, and shown on a multi-tenant dashboard, where admins triage touches and disable tripwires.
 
-A one-page overview for people new to the project: [site/index.html](site/index.html).
+A one-page overview for people new to the project: [danielguillaumont.github.io/snare](https://danielguillaumont.github.io/snare/) (source in [site/](site/index.html)).
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). What it defends against, and what it
 doesn't: [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md). Wiring it into Claude Desktop,
 Claude Code, other MCP clients and your SIEM: [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
