@@ -3,7 +3,7 @@
 # Used by .github/workflows/release.yml on a tag, and by CI (with VERSION=ci) on every PR so
 # a broken target fails before a release does (docs/M4f-distribution.md section 1).
 #
-#   VERSION=0.7.0 scripts/build-release.sh
+#   VERSION=0.8.0 scripts/build-release.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 version=${VERSION:?set VERSION}
