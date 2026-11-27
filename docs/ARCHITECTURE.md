@@ -52,6 +52,9 @@ flowchart LR
    - The gateway also scans real tool results. When a honey value comes back to the agent,
      it touches its own `exposure_signal` token. The touch is a warning: recorded, part of
      the incident, never alerted on its own ([M16](M16-early-warning.md)).
+   - It pins each real tool's definition on first sight. If a server later changes a tool's
+     description or schema under the same name, it touches an `integrity_signal` token:
+     another warning, at the ingest layer ([M17](M17-tool-integrity.md)).
 3. **Touch.** A hijacked agent calls a decoy tool, uses a honey key against the honey base
    URL, follows a canary link, or resolves a canary hostname. Legitimate work has no reason
    to do any of these. That is the whole bet, and M0/M3b/M3c measured it.

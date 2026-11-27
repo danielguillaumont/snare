@@ -45,6 +45,8 @@ type GatewayOptions struct {
 	// NoExposure turns off early warnings (docs/M16-early-warning.md): no exposure_signal
 	// token is minted and the gateway doesn't scan tool results.
 	NoExposure bool
+	// NoIntegrity turns off tool-definition pinning (docs/M17-tool-integrity.md).
+	NoIntegrity bool
 }
 
 // Gateway mints one decoy token per catalog decoy, fetches fingerprints of every tripwire in
@@ -108,6 +110,15 @@ func Gateway(c GatewayClient, o GatewayOptions) ([]Entry, string, error) {
 		}
 		cfg.Exposure = &gateway.Exposure{Token: r.Token}
 		entries = append(entries, Entry{Type: "gateway", Path: o.ConfigPath, Label: label, Kind: store.KindExposure, TokenID: r.ID, PlantedAt: time.Now().UTC()})
+	}
+	if !o.NoIntegrity {
+		label := "gateway integrity: " + filepath.Base(absOr(o.ConfigPath))
+		r, err := mt.Mint(store.KindIntegrity, label, "planted by snare plant gateway; touched when a real tool's definition changes: a warning, never an alert on its own")
+		if err != nil {
+			return nil, "", err
+		}
+		cfg.Integrity = &gateway.Integrity{Token: r.Token}
+		entries = append(entries, Entry{Type: "gateway", Path: o.ConfigPath, Label: label, Kind: store.KindIntegrity, TokenID: r.ID, PlantedAt: time.Now().UTC()})
 	}
 	if !o.DryRun {
 		if _, err := fetch(c, &cfg); err != nil {

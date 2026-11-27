@@ -35,29 +35,35 @@ func TestGatewayConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// One entry per decoy, plus the heartbeat token (docs/M11-heartbeat.md) and the exposure
-	// token (docs/M16-early-warning.md), each minted under its own kind so its touches are
-	// never alerts.
-	if len(entries) != len(decoys.Catalog)+1 || len(cfg.Decoys) != len(entries)-2 {
+	// One entry per decoy, plus the heartbeat token (docs/M11-heartbeat.md), the exposure
+	// token (docs/M16-early-warning.md) and the integrity token (docs/M17-tool-integrity.md),
+	// each minted under its own kind so its touches are never alerts.
+	if len(entries) != len(decoys.Catalog)+2 || len(cfg.Decoys) != len(entries)-3 {
 		t.Fatalf("entries %d, decoys %d", len(entries), len(cfg.Decoys))
 	}
-	hbe, exe := entries[len(entries)-2], entries[len(entries)-1]
-	if hb := cfg.Heartbeat; hb == nil || hb.Every != "15m" || hb.Token == "" || hbe.Kind != "heartbeat" || f.calls[len(f.calls)-2].Kind != "heartbeat" {
+	hbe, exe, ine := entries[len(entries)-3], entries[len(entries)-2], entries[len(entries)-1]
+	if in := cfg.Integrity; in == nil || in.Token == "" || in.Token == cfg.Exposure.Token || ine.Kind != "integrity_signal" || f.calls[len(f.calls)-1].Kind != "integrity_signal" {
+		t.Fatalf("integrity: %+v, entry %+v", cfg.Integrity, ine)
+	}
+	if !strings.HasSuffix(cfg.Integrity.PinFile, "gw.json.pins") {
+		t.Fatalf("pin file %q", cfg.Integrity.PinFile)
+	}
+	if hb := cfg.Heartbeat; hb == nil || hb.Every != "15m" || hb.Token == "" || hbe.Kind != "heartbeat" || f.calls[len(f.calls)-3].Kind != "heartbeat" {
 		t.Fatalf("heartbeat: %+v, entry %+v, kinds %v", cfg.Heartbeat, hbe, f.calls)
 	}
-	if ex := cfg.Exposure; ex == nil || ex.Token == "" || ex.Token == cfg.Heartbeat.Token || exe.Kind != "exposure_signal" || f.calls[len(f.calls)-1].Kind != "exposure_signal" {
+	if ex := cfg.Exposure; ex == nil || ex.Token == "" || ex.Token == cfg.Heartbeat.Token || exe.Kind != "exposure_signal" || f.calls[len(f.calls)-2].Kind != "exposure_signal" {
 		t.Fatalf("exposure: %+v, entry %+v", cfg.Exposure, exe)
 	}
 	// -heartbeat 0 and -exposure=false plant none; a bad interval is refused.
-	if es, _, err := Gateway(&fakeGW{}, GatewayOptions{ConfigPath: filepath.Join(t.TempDir(), "gw.json"), Heartbeat: "0", NoExposure: true}); err != nil || len(es) != len(decoys.Catalog) {
+	if es, _, err := Gateway(&fakeGW{}, GatewayOptions{ConfigPath: filepath.Join(t.TempDir(), "gw.json"), Heartbeat: "0", NoExposure: true, NoIntegrity: true}); err != nil || len(es) != len(decoys.Catalog) {
 		t.Fatalf("heartbeat 0, no exposure: %d entries, %v", len(es), err)
 	}
 	off := filepath.Join(t.TempDir(), "gw.json")
-	if _, _, err := Gateway(&fakeGW{}, GatewayOptions{ConfigPath: off, NoExposure: true}); err != nil {
+	if _, _, err := Gateway(&fakeGW{}, GatewayOptions{ConfigPath: off, NoExposure: true, NoIntegrity: true}); err != nil {
 		t.Fatal(err)
 	}
-	if c, _ := gateway.LoadConfig(off); c.Exposure != nil {
-		t.Fatalf("-exposure=false still configured %+v", c.Exposure)
+	if c, _ := gateway.LoadConfig(off); c.Exposure != nil || c.Integrity != nil {
+		t.Fatalf("-exposure=false -integrity=false still configured %+v %+v", c.Exposure, c.Integrity)
 	}
 	if _, _, err := Gateway(&fakeGW{}, GatewayOptions{ConfigPath: filepath.Join(t.TempDir(), "gw.json"), Heartbeat: "10s"}); err == nil {
 		t.Fatal("a 10s heartbeat was accepted")

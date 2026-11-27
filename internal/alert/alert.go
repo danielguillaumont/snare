@@ -171,13 +171,22 @@ func New(tok store.Token, ev store.Event) Alert {
 			Containment: ev.Containment, Inputs: ev.Inputs, Warning: ev.Warning,
 		},
 	}
-	if ev.Warning { // docs/M16-early-warning.md §2
+	if ev.Warning { // docs/M16-early-warning.md §2, docs/M17-tool-integrity.md §2
 		a.SeverityID, a.Severity = 2, "Low"
-		a.Message = "Snare warning: a honey value reached an agent through a tool result"
-		a.FindingInfo.Title = "Honey value reached the agent: " + tok.Label
-		a.FindingInfo.Desc = "A gateway saw a planted honey value in a real tool's result, so the agent " +
-			"has read it. Nothing has used it yet. Legitimate work can read config files, so this is " +
-			"a lead, not an alert; a tripwire touch in the same session becomes Critical."
+		if tok.Kind == store.KindIntegrity {
+			a.Message = "Snare warning: a real tool's definition changed"
+			a.FindingInfo.Title = "Tool definition changed: " + tok.Label
+			a.FindingInfo.Desc = "A gateway saw a real tool's description or input schema differ from the " +
+				"definition it pinned. A changed definition can carry instructions the agent will follow. " +
+				"Server upgrades change definitions too, so this is a lead, not an alert; a tripwire touch " +
+				"in the same session becomes Critical. Accept a reviewed change with snare gateway pins -accept."
+		} else {
+			a.Message = "Snare warning: a honey value reached an agent through a tool result"
+			a.FindingInfo.Title = "Honey value reached the agent: " + tok.Label
+			a.FindingInfo.Desc = "A gateway saw a planted honey value in a real tool's result, so the agent " +
+				"has read it. Nothing has used it yet. Legitimate work can read config files, so this is " +
+				"a lead, not an alert; a tripwire touch in the same session becomes Critical."
+		}
 	}
 	if s := LastInput(ev.Inputs); s != "" {
 		a.FindingInfo.Desc += " " + s

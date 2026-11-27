@@ -55,6 +55,8 @@ func Classify(kind, via string) (layer, stage string) {
 		return LayerContext, StageSteered
 	case "decoy_tool":
 		return LayerTool, StageRecon
+	case KindIntegrity: // a tool definition changed: an injection path (docs/M17-tool-integrity.md)
+		return LayerIngest, StageSteered
 	}
 	return LayerData, StageCollection
 }

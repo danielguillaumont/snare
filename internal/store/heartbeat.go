@@ -18,6 +18,14 @@ const KindHeartbeat = "heartbeat"
 // incident, never alerted on their own.
 const KindExposure = "exposure_signal"
 
+// KindIntegrity is the token kind a gateway touches when a real tool's definition changed
+// under the same name (docs/M17-tool-integrity.md). Its touches are warnings too.
+const KindIntegrity = "integrity_signal"
+
+// IsWarningKind reports whether touches of a token kind are warnings: recorded and
+// correlated, never alerted on their own.
+func IsWarningKind(kind string) bool { return kind == KindExposure || kind == KindIntegrity }
+
 // Heartbeat channels.
 const (
 	BeatHTTP    = "http"

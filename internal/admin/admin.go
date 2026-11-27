@@ -35,6 +35,7 @@ var Kinds = map[string]bool{
 	"prompt_canary": true, "memory_canary": true,
 	store.KindHeartbeat: true, // touches are heartbeats, never alerts (docs/M11-heartbeat.md)
 	store.KindExposure:  true, // touches are warnings, never alerts (docs/M16-early-warning.md)
+	store.KindIntegrity: true, // touches are warnings, never alerts (docs/M17-tool-integrity.md)
 }
 
 // TenantHeader lets the operator key act on one tenant's data.

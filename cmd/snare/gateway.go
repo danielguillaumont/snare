@@ -16,6 +16,9 @@ import (
 //
 //	snare gateway -config gw.json -- npx some-mcp-server --its-flags
 func gatewayCmd(args []string) error {
+	if len(args) > 0 && args[0] == "pins" {
+		return gatewayPins(args[1:], os.Stdout)
+	}
 	if len(args) > 0 && args[0] == "release" {
 		return gatewayRelease(args[1:])
 	}
