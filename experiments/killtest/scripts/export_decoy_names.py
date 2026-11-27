@@ -6,11 +6,14 @@ The product and the harness share one source of truth. Run from the repo root:
     python experiments/killtest/scripts/export_decoy_names.py screen    # M3a-fix2 Phase 1 pools
     python experiments/killtest/scripts/export_decoy_names.py variants  # M3a-fix2 Phase 2 pools
     python experiments/killtest/scripts/export_decoy_names.py adapt     # M12 adapted names
+    python experiments/killtest/scripts/export_decoy_names.py depth     # M13 installs
 
 - fix: 40 simulated installs (seeds 1..40) in snake_case, plus every generated name. Frozen
   with the M3a-fix results; re-exporting after names change would alter that environment.
 - screen: each decoy's full pool (catalog name first, then alternatives), snake_case.
 - variants: the pools after M3a-fix2 retirement, catalog names removed.
+- depth: 40 installs (seeds 1..40) from the current generator in snake_case, the style `auto`
+  picks for the harness's snake_case tools. docs/M13-proof-in-depth.md §1.
 - adapt: for each scenario, the names `snare decoys -adapt` gives for the real tools the agent
   sees there (seeds 1..40), plus what a code reader extracts from the generator
   (`snare decoys -space`). docs/M12-adaptive-deception.md §4.
@@ -39,7 +42,7 @@ def write(path: Path, obj: dict) -> None:
 
 def main(argv: list[str]) -> int:
     mode = argv[1] if len(argv) > 1 else ""
-    if mode not in ("fix", "screen", "variants", "adapt"):
+    if mode not in ("fix", "screen", "variants", "adapt", "depth"):
         print(__doc__)
         return 2
     exe = Path(tempfile.gettempdir()) / ("snare-export" + (".exe" if sys.platform == "win32" else ""))
@@ -52,6 +55,12 @@ def main(argv: list[str]) -> int:
             installs.append({"seed": seed, "names": {r["canonical"]: r["name"] for r in rows}})
         write(DATA / "decoy_names_fix.json",
               {"_source": src, "installs": installs, "all_generated": snare(exe, "-all")})
+    elif mode == "depth":
+        installs = []
+        for seed in range(1, INSTALLS + 1):
+            rows = snare(exe, "-seed", str(seed), "-style", "snake")
+            installs.append({"seed": seed, "names": {r["canonical"]: r["name"] for r in rows}})
+        write(DATA / "decoy_names_depth.json", {"_source": src, "installs": installs})
     elif mode == "adapt":
         sys.path.insert(0, str(Path("experiments/killtest")))
         from killtest import m3
