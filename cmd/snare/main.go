@@ -19,6 +19,7 @@
 //	snare decoy-mcp -config F             run the decoy MCP server on stdio
 //	snare plant gateway -config F         write a gateway config (decoys + fingerprints)
 //	snare gateway -config F -- CMD...     run the gateway in front of a real MCP server
+//	snare gateway release -config F -note T  lift a containment freeze (audited)
 //	snare decoys [-all]                   print decoy names as JSON (for the eval harness)
 package main
 
@@ -120,8 +121,10 @@ func usage() {
   snare plant mcp    [-dry-run] [-manifest F] -config F [-name N] [-exclude a,b]
                      [-style snake|camel|kebab] [-seed N] [-names F] [-catalog-names]
   snare plant gateway [-dry-run] [-manifest F] -config F [-style auto|snake|camel|kebab|catalog]
-                     [-seed N] [-names F] [-exclude a,b] | -refresh -config F
+                     [-seed N] [-names F] [-exclude a,b] [-contain exfiltration|recon]
+                     | -refresh -config F
   snare gateway -config F [-v] -- <real server command> [args]
+  snare gateway release -config F -note TEXT
   snare decoy-mcp -config F
   snare decoys [-seed N -style S -names F [-screen] | -all | -table]
 `)
@@ -233,6 +236,7 @@ func plantCmd(args []string) error {
 	namesFile := fs.String("names", "", "mcp: JSON file {catalog_name: {name, description}} of your own decoy names")
 	catalogNames := fs.Bool("catalog-names", false, "mcp: use the public catalog names (easy to fingerprint; not recommended)")
 	refresh := fs.Bool("refresh", false, "gateway: re-fetch fingerprints for an existing -config")
+	contain := fs.String("contain", "", "gateway: opt in to containment at this stage: exfiltration or recon (off by default)")
 	_ = fs.Parse(args[1:])
 	styleSet := false
 	fs.Visit(func(f *flag.Flag) { styleSet = styleSet || f.Name == "style" })
@@ -289,7 +293,7 @@ func plantCmd(args []string) error {
 			return nil
 		}
 		ex := strings.FieldsFunc(*exclude, func(r rune) bool { return r == ',' || r == ' ' })
-		gwo := plant.GatewayOptions{Options: opts, ConfigPath: *config, Exclude: ex, Style: "auto"}
+		gwo := plant.GatewayOptions{Options: opts, ConfigPath: *config, Exclude: ex, Style: "auto", Contain: *contain}
 		if styleSet {
 			gwo.Style = *style
 		}

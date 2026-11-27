@@ -3,10 +3,12 @@ package admin
 // Incidents (docs/M7-incidents.md §4).
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/danielguillaumont/snare/internal/store"
 )
@@ -51,6 +53,36 @@ func (a *API) getIncident(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, d)
+}
+
+// ReleaseRequest is the body of POST /api/sessions/{id}/release.
+type ReleaseRequest struct {
+	Note string `json:"note"`
+}
+
+// ReleaseResponse says how many contained touches the released session had.
+type ReleaseResponse struct {
+	ContainedTouches int `json:"contained_touches"`
+}
+
+// releaseSession records an audited release of a contained gateway session (M8 §4).
+func (a *API) releaseSession(w http.ResponseWriter, r *http.Request) {
+	var req ReleaseRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "body: {\"note\": \"why it is safe to release\"}"})
+		return
+	}
+	n, err := a.view(r).ReleaseSession(r.Context(), r.PathValue("id"), strings.TrimSpace(req.Note))
+	switch {
+	case errors.Is(err, store.ErrInvalid):
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("a note is required, at most %d bytes", store.MaxTriageNote)})
+	case errors.Is(err, store.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+	case err != nil:
+		a.fail(w, "release session", err)
+	default:
+		writeJSON(w, http.StatusOK, ReleaseResponse{ContainedTouches: n})
+	}
 }
 
 // Incident assembles an incident's timeline with each touch's tripwire kind and label. The

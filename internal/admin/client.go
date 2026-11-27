@@ -90,6 +90,13 @@ func (c *Client) Incident(id int64) (IncidentDetail, error) {
 	return d, err
 }
 
+// ReleaseSession records an audited release of a contained gateway session.
+func (c *Client) ReleaseSession(session, note string) (ReleaseResponse, error) {
+	var r ReleaseResponse
+	err := c.do("POST", "/api/sessions/"+url.PathEscape(session)+"/release", ReleaseRequest{Note: note}, &r)
+	return r, err
+}
+
 // Triage sets an event's triage status and note.
 func (c *Client) Triage(eventID int64, status, note string) error {
 	return c.do("POST", fmt.Sprintf("/api/events/%d/triage", eventID), TriageRequest{Status: status, Note: note}, nil)

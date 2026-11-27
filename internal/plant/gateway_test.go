@@ -68,6 +68,27 @@ func TestGatewayConfig(t *testing.T) {
 	}
 }
 
+func TestGatewayContainIsOptIn(t *testing.T) {
+	dir := t.TempDir()
+	off := filepath.Join(dir, "off.json")
+	if _, _, err := Gateway(&fakeGW{}, GatewayOptions{ConfigPath: off}); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := gateway.LoadConfig(off); c.Contain != nil {
+		t.Fatal("containment on without -contain")
+	}
+	on := filepath.Join(dir, "on.json")
+	if _, _, err := Gateway(&fakeGW{}, GatewayOptions{ConfigPath: on, Contain: "recon"}); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := gateway.LoadConfig(on); c.Contain == nil || c.Contain.At != "recon" || c.Contain.StateFile != on+".frozen" {
+		t.Fatalf("contain: %+v", c.Contain)
+	}
+	if _, _, err := Gateway(&fakeGW{}, GatewayOptions{ConfigPath: filepath.Join(dir, "bad.json"), Contain: "use"}); err == nil {
+		t.Fatal("-contain use accepted")
+	}
+}
+
 func TestGatewayDryRun(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gw.json")
 	f := &fakeGW{}

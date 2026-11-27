@@ -47,6 +47,8 @@ const (
 	ActTokenEnable   = "token.enable"
 	ActEventTriage   = "event.triage"
 	ActEventsPurge   = "events.purge"
+	// ActSessionRelease: an admin released a contained gateway session (M8).
+	ActSessionRelease = "session.release"
 )
 
 type AuditEntry struct {

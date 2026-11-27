@@ -35,6 +35,7 @@ type GatewayOptions struct {
 	Seed       uint64
 	Overrides  map[string]decoys.Override
 	Command    string // snare binary for the client snippet (default "snare")
+	Contain    string // "", "exfiltration" or "recon" (docs/M8-containment.md); "" is off
 }
 
 // Gateway mints one decoy token per catalog decoy, fetches fingerprints of every tripwire in
@@ -56,6 +57,12 @@ func Gateway(c GatewayClient, o GatewayOptions) ([]Entry, string, error) {
 		o.Style = "auto"
 	}
 	cfg := gateway.Config{Style: o.Style, Seed: o.Seed, Decoys: map[string]string{}, Names: o.Overrides}
+	if o.Contain != "" {
+		cfg.Contain = &gateway.Contain{At: o.Contain}
+		if err := cfg.Validate(); err != nil && err.Error() != "callback_url is required" {
+			return nil, "", fmt.Errorf("-contain: %w", err)
+		}
+	}
 	mt := minter(c, o.Options)
 	var entries []Entry
 	for _, t := range decoys.Catalog {

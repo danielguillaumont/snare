@@ -42,7 +42,8 @@
             "incident_id": { "type": "long" },
             "correlated_stages": { "type": "keyword" },
             "correlated_touches": { "type": "integer" },
-            "critical_because": { "type": "text" }
+            "critical_because": { "type": "text" },
+            "containment": { "type": "keyword" }
           }
         }
       }

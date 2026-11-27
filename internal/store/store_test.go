@@ -238,6 +238,21 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				t.Fatalf("A's own correlation: %+v %v", c, err)
 			}
 		},
+		"ReleaseSession": func(t *testing.T, f fixture) {
+			if _, _, _, _, err := f.s.RecordHit(ctx, Event{TokenID: "tok_b", Channel: "http", SourceIP: "203.0.113.9",
+				Session: "sb0000000001", Containment: ContainBlocked, At: time.Now()}, false); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.a.ReleaseSession(ctx, "sb0000000001", "not mine"); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("A released B's session: %v", err)
+			}
+			if n, err := f.b.ReleaseSession(ctx, "sb0000000001", "INC-1 cleaned up"); err != nil || n != 1 {
+				t.Fatalf("B's own release: %d %v", n, err)
+			}
+			if aud, _ := f.a.ListAudit(ctx, 50); len(aud) > 0 && aud[0].Action == ActSessionRelease {
+				t.Fatal("B's release is in A's audit log")
+			}
+		},
 		"ListIncidents": func(t *testing.T, f fixture) {
 			// Both tenants' fixture touches share a source IP; each sees one incident, its own.
 			ins, err := f.a.ListIncidents(ctx, 10)

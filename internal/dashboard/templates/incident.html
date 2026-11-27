@@ -14,7 +14,7 @@
   <ol class="timeline">
     {{range .Timeline}}<li class="{{if or .Muted (ne .Status "open")}}done{{end}}">
       <span class="when">{{ts .At}}</span>
-      {{if .Stage}}<span class="stage stage-{{.Stage}}">{{.Stage}}</span> <span class="muted">{{.Layer}} layer</span>{{else}}<span class="muted">recorded before stages</span>{{end}}
+      {{if .Stage}}<span class="stage stage-{{.Stage}}">{{.Stage}}</span> <span class="muted">{{.Layer}} layer</span>{{else}}<span class="muted">recorded before stages</span>{{end}}{{if eq .Containment "blocked"}} <span class="tag crit" title="the gateway did not forward this call, and froze the session">blocked · session frozen</span>{{else if eq .Containment "frozen"}} <span class="tag crit" title="the gateway froze the session after this touch">session frozen</span>{{end}}
       <div><a href="/tokens/{{.TokenID}}">{{.Label}}</a> <span class="muted">{{.Kind}} · {{.Channel}} · <code>{{.SourceIP}}</code></span> {{template "status" .Event}}</div>
       <div class="detail">{{.Detail}}</div>
     </li>{{end}}
