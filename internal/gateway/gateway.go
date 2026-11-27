@@ -57,6 +57,9 @@ type Config struct {
 	// Exposure warns when a honey value reaches the agent in a tool result
 	// (docs/M16-early-warning.md). Nil is off.
 	Exposure *Exposure `json:"exposure,omitempty"`
+	// Integrity pins real tools' definitions and warns when one changes
+	// (docs/M17-tool-integrity.md). Nil is off.
+	Integrity *Integrity `json:"integrity,omitempty"`
 }
 
 // Exposure configures early warnings. Token is an exposure_signal token: its touches are
@@ -79,6 +82,9 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if c.Contain != nil && c.Contain.StateFile == "" {
 		c.Contain.StateFile = path + ".frozen"
+	}
+	if c.Integrity != nil && c.Integrity.PinFile == "" {
+		c.Integrity.PinFile = path + ".pins"
 	}
 	return c, c.Validate()
 }
@@ -116,6 +122,9 @@ func (c Config) Validate() error {
 	if c.Exposure != nil && c.Exposure.Token == "" {
 		return errors.New("exposure has no token")
 	}
+	if c.Integrity != nil && c.Integrity.Token == "" {
+		return errors.New("integrity has no token")
+	}
 	if c.Contain != nil {
 		return c.Contain.validate()
 	}
@@ -140,10 +149,14 @@ type Gateway struct {
 	params  map[string][]decoys.Param // catalog name -> arguments shown, when adapted (M12)
 	tools   []decoys.RealTool         // real tools seen so far, for style adapt
 	frozen  bool                      // contained (M8)
-	// exposed: tools whose results already produced an exposure this session (M16);
-	// toExpose: exposures waiting to be sent once g.mu is released.
-	exposed  map[string]bool
-	toExpose []string
+	// exposed: tools whose results already produced an exposure this session (M16).
+	// drifted: tools whose changed definition was already reported this session (M17).
+	// queue: warnings waiting to be sent once g.mu is released.
+	exposed    map[string]bool
+	drifted    map[string]bool
+	queue      []signal
+	pins       map[string]Pin // loaded at the first tools/list reply (M17)
+	pinsBroken bool
 	// persisted: the freeze is in the state file, so removing the file releases it.
 	persisted bool
 	calls     map[string]callInfo // forwarded real tool calls awaiting a result (M9)
@@ -167,7 +180,7 @@ func (g *Gateway) init() {
 		g.Session = "s" + hex.EncodeToString(b)
 	}
 	g.pending, g.real, g.calls = map[string]bool{}, map[string]bool{}, map[string]callInfo{}
-	g.exposed = map[string]bool{}
+	g.exposed, g.drifted = map[string]bool{}, map[string]bool{}
 	if len(g.Cfg.Fingerprints) > 0 {
 		set := token.FingerprintSet{}
 		for _, fp := range g.Cfg.Fingerprints {
@@ -372,6 +385,7 @@ func (g *Gateway) inject(msg []byte) ([]byte, error) {
 			return nil, err
 		}
 	}
+	defs := map[string]string{}
 	for _, raw := range tools {
 		var t struct {
 			Name        string `json:"name"`
@@ -380,7 +394,12 @@ func (g *Gateway) inject(msg []byte) ([]byte, error) {
 				Properties map[string]json.RawMessage `json:"properties"`
 			} `json:"inputSchema"`
 		}
+		var def struct {
+			InputSchema json.RawMessage `json:"inputSchema"`
+		}
+		_ = json.Unmarshal(raw, &def)
 		if json.Unmarshal(raw, &t) == nil && t.Name != "" {
+			defs[t.Name] = DefinitionFingerprint(t.Name, t.Description, def.InputSchema)
 			if !g.real[t.Name] {
 				rt := decoys.RealTool{Name: t.Name, Description: t.Description}
 				for p := range t.InputSchema.Properties {
@@ -392,6 +411,7 @@ func (g *Gateway) inject(msg []byte) ([]byte, error) {
 			g.real[t.Name] = true
 		}
 	}
+	g.checkDefinitions(defs) // before decoys are added: decoys are never pinned
 	var cursor string
 	_ = json.Unmarshal(result["nextCursor"], &cursor)
 	if cursor != "" {
@@ -531,19 +551,22 @@ func (g *Gateway) noteExposure(ci callInfo, result json.RawMessage) {
 	}
 	if _, hit := g.find([]byte(text)); hit {
 		g.exposed[ci.tool] = true
-		g.toExpose = append(g.toExpose, ci.tool)
+		g.queue = append(g.queue, signal{tok: g.Cfg.Exposure.Token, layer: layerExposure, tool: ci.tool})
 	}
 }
 
-// flushExposures sends the queued exposures. It takes g.mu itself, so it runs after
+// signal is a warning touch waiting to be sent (M16, M17).
+type signal struct{ tok, layer, tool string }
+
+// flushExposures sends the queued warnings. It takes g.mu itself, so it runs after
 // fromServer has released it (fire reads the ledger under the same lock).
 func (g *Gateway) flushExposures(ctx context.Context) {
 	g.mu.Lock()
-	q := g.toExpose
-	g.toExpose = nil
+	q := g.queue
+	g.queue = nil
 	g.mu.Unlock()
-	for _, tool := range q {
-		g.fire(ctx, g.Cfg.Exposure.Token, layerExposure, tool, "")
+	for _, s := range q {
+		g.fire(ctx, s.tok, s.layer, s.tool, "")
 	}
 }
 

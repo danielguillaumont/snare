@@ -113,7 +113,7 @@ func (s *Store) RecordHit(ctx context.Context, e Event, alert bool) (tok Token, 
 		e.Muted = true
 		alert = false
 	}
-	e.Warning = found && tok.Kind == KindExposure // a warning, never an alert (M16 §2)
+	e.Warning = found && IsWarningKind(tok.Kind) // a warning, never an alert (M16 §2, M17)
 	if e.Warning {
 		alert = false
 	}

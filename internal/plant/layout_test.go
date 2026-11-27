@@ -118,7 +118,7 @@ func TestNoValueIsReusedByAnyPlantCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fields = map[string]string{"heartbeat": gc.Heartbeat.Token, "exposure": gc.Exposure.Token}
+	fields = map[string]string{"heartbeat": gc.Heartbeat.Token, "exposure": gc.Exposure.Token, "integrity": gc.Integrity.Token}
 	for k, v := range gc.Decoys {
 		fields[k] = v
 	}

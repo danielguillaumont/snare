@@ -41,6 +41,12 @@ Each row gets its own design doc before code.
 | **M14** ✅ | First run, end to end | `snare init` (find configs, plan layers, wrap servers, liveness check, coverage score); `snare demo -attack` incident replay ([M14-first-run.md](M14-first-run.md)) | One command from install to a verified, layered deployment. **Done 2026-11-27**, $0:<br>• `snare init` is a dry run by default. `-apply` plants a gateway per chosen server, backs up the client config and rewrites only those entries, verifies each callback path with a heartbeat, and prints layer coverage. `-undo` reverses it. Tested end to end against a real server.<br>• `snare demo -attack` drives a scripted hijack through a real gateway (poisoned ticket, decoy call, honey key emailed and blocked) and prints the incident from the admin API. |
 | **M16** ✅ | Early warning | Gateway scans real tool results for honey values; a separate `exposure_signal` token records a warning ([M16-early-warning.md](M16-early-warning.md)) | A honey value reaching the agent is on the record before it is used. **Built 2026-11-27**, $0:<br>• Warnings are stored and correlated, never sent on their own (OCSF Low). A tripwire touch after one in the same session is Critical.<br>• A honey key's own touch can't be downgraded: only the exposure token's kind makes a warning.<br>• Pre-registered check passed, $0.23: `warned_or_observed` 106/138 = 76.8% (CI 69.1–83.1%) against a 60% bar, and 0/60 benign alerts. 57 of the 106 have only a warning, and only 1 warned run escalated ([results](results-m16.md)). |
 
+### After depth (M17 onward)
+
+| # | Milestone | Scope | Exit criterion |
+|---|---|---|---|
+| **M17** ✅ | Tool integrity | The gateway pins each real tool's definition (trust on first use) and records an `integrity_signal` warning when one changes under the same name ([M17-tool-integrity.md](M17-tool-integrity.md)) | A rug-pulled tool is on the record in the session that sees it, and a tripwire touch after it is Critical. **Built 2026-11-27**, $0. Tested end to end: a server rewrote a description between sessions and the second session's incident reads steered > recon. Benign change rates on real servers are not measured. |
+
 ## M0 detail
 
 1. Harness with scripted fake model, fully tested offline.

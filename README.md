@@ -144,6 +144,7 @@ sha256sum -c SHA256SUMS --ignore-missing
 | M15 detection where harm happens: pre-registered | ⏹ Stopped at the pilot stage: 0/40 harmful runs. Haiku wouldn't send credentials, so there was nothing to measure ([results](docs/results-m15.md)) |
 | M14 first run, end to end | ✅ `snare init` (plan, wrap, verify, coverage) and `snare demo -attack` ([design](docs/M14-first-run.md)) |
 | M16 early warning: a honey value reaching the agent in a tool result is recorded as a warning that makes the next touch Critical | ✅ Pre-registered check passed: warned or caught 106/138 = 76.8% (CI 69.1–83.1%) vs 35.5% caught without it; 0/60 benign. Most of the gain is warnings, which don't page ([results](docs/results-m16.md)) |
+| M17 tool integrity: the gateway pins each real tool's definition and warns when one changes under the same name (rug pull / tool poisoning) | ✅ Built, $0 ([design and evidence](docs/M17-tool-integrity.md)) |
 | M5 design partners | Not started |
 
 Full plan and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).

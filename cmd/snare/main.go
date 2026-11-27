@@ -22,6 +22,7 @@
 //	snare plant gateway -config F         write a gateway config (decoys + fingerprints)
 //	snare gateway -config F -- CMD...     run the gateway in front of a real MCP server
 //	snare gateway release -config F -note T  lift a containment freeze (audited)
+//	snare gateway pins -config F [-accept T] list tool-definition pins; accept a reviewed change
 //	snare heartbeat                       when each channel (http, dns, gateway) was last verified
 //	snare provenance find -hash H [dirs]  name the file a touch's input fingerprint came from
 //	snare decoys [-all]                   print decoy names as JSON (for the eval harness)
@@ -137,10 +138,11 @@ func usage() {
                      [-style snake|camel|kebab] [-seed N] [-names F] [-catalog-names]
   snare plant gateway [-dry-run] [-manifest F] -config F [-style auto|adapt|snake|camel|kebab|catalog]
                      [-seed N] [-names F] [-profile P] [-exclude a,b] [-contain exfiltration|recon]
-                     [-provenance-names] [-heartbeat 15m|0] [-exposure=false]
+                     [-provenance-names] [-heartbeat 15m|0] [-exposure=false] [-integrity=false]
                      | -refresh -config F
   snare gateway -config F [-v] -- <real server command> [args]
   snare gateway release -config F -note TEXT
+  snare gateway pins -config F [-accept TOOL]
   snare heartbeat
   snare provenance find -hash FINGERPRINT [dir ...]
   snare decoy-mcp -config F
@@ -262,6 +264,7 @@ func plantCmd(args []string) error {
 	refresh := fs.Bool("refresh", false, "gateway: re-fetch fingerprints for an existing -config")
 	contain := fs.String("contain", "", "gateway: opt in to containment at this stage: exfiltration or recon (off by default)")
 	heartbeat := fs.String("heartbeat", "15m", "gateway: heartbeat interval (at least 1m), or 0 for none")
+	integrity := fs.Bool("integrity", true, "gateway: pin real tools' definitions and warn when one changes (-integrity=false for none)")
 	exposure := fs.Bool("exposure", true, "gateway: warn when a honey value reaches the agent in a tool result (-exposure=false for none)")
 	provNames := fs.Bool("provenance-names", false, "gateway: send each input's path or URL argument with touches (off by default)")
 	file := fs.String("file", "", "prompt: system prompt file to append the passage to (default: print it)")
@@ -360,7 +363,7 @@ func plantCmd(args []string) error {
 			return nil
 		}
 		ex := strings.FieldsFunc(*exclude, func(r rune) bool { return r == ',' || r == ' ' })
-		gwo := plant.GatewayOptions{Options: opts, ConfigPath: *config, Exclude: ex, Profiles: decoys.ParseProfiles(*profile), Style: "auto", Contain: *contain, ProvenanceNames: *provNames, Heartbeat: *heartbeat, NoExposure: !*exposure}
+		gwo := plant.GatewayOptions{Options: opts, ConfigPath: *config, Exclude: ex, Profiles: decoys.ParseProfiles(*profile), Style: "auto", Contain: *contain, ProvenanceNames: *provNames, Heartbeat: *heartbeat, NoExposure: !*exposure, NoIntegrity: !*integrity}
 		if styleSet {
 			gwo.Style = *style
 		}
