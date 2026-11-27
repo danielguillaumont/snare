@@ -75,13 +75,15 @@ func Coverage(ps []Planted) []LayerCoverage {
 	}
 	out := []LayerCoverage{
 		layer("ingest", "steered", "snare plant corpus -with-instruction <docs dir>", "canary_instruction"),
-		{Layer: "context", Stage: "steered", ToArm: "not yet available: prompt and memory canaries are planned (M10)"},
+		layer("context", "steered", "snare plant prompt -file <system prompt file>, snare plant memory <dir> (then load the records into the agent's memory)",
+			"prompt_canary", "memory_canary"),
 		layer("tool", "recon", "snare plant gateway -config gw.json (decoys inside your real MCP servers), or snare plant mcp", "decoy_tool"),
 		layer("data", "collection", "snare plant repo <repo dir>, snare plant corpus <docs dir>", "honey_credential", "canary_doc", "canary_url"),
 		layer("egress", "exfiltration", "snare plant gateway -config gw.json, then run your MCP servers through snare gateway", "type:gateway"),
 		layer("use", "use", "snare plant repo <repo dir> (honey credentials report when they are used)", "honey_credential"),
 	}
-	if out[4].Armed && count["honey_credential"]+count["canary_doc"]+count["canary_url"]+count["canary_instruction"] == 0 {
+	if out[4].Armed && count["honey_credential"]+count["canary_doc"]+count["canary_url"]+count["canary_instruction"]+
+		count["prompt_canary"]+count["memory_canary"] == 0 {
 		out[4].Note = "the gateway has no honey values to look for: plant data tripwires, then snare plant gateway -refresh"
 	}
 	return out

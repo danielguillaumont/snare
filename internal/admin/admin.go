@@ -32,6 +32,7 @@ import (
 var Kinds = map[string]bool{
 	"decoy_tool": true, "honey_credential": true, "canary_doc": true,
 	"canary_url": true, "canary_instruction": true, "other": true,
+	"prompt_canary": true, "memory_canary": true,
 }
 
 // TenantHeader lets the operator key act on one tenant's data.

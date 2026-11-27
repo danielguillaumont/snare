@@ -49,9 +49,20 @@ func TestCoverage(t *testing.T) {
 	if c := layerByName(t, cov, "ingest"); c.Armed || !strings.Contains(c.ToArm, "-with-instruction") {
 		t.Errorf("ingest: %+v", c)
 	}
-	// Context can't be armed until M10, whatever is planted.
-	if c := layerByName(t, cov, "context"); c.Armed || !strings.Contains(c.ToArm, "M10") {
+	if c := layerByName(t, cov, "context"); c.Armed || !strings.Contains(c.ToArm, "snare plant prompt") || !strings.Contains(c.ToArm, "snare plant memory") {
 		t.Errorf("context: %+v", c)
+	}
+
+	// Context canaries (M10) arm the context layer, either kind alone, and give a gateway
+	// something to find.
+	for _, k := range []string{"prompt_canary", "memory_canary"} {
+		cov = Coverage([]Planted{{Type: "gateway", Kind: "decoy_tool"}, {Kind: k}, {Kind: k}})
+		if c := layerByName(t, cov, "context"); !c.Armed || strings.Join(c.By, ",") != "2 "+k || c.ToArm != "" {
+			t.Errorf("context with %s: %+v", k, c)
+		}
+		if c := layerByName(t, cov, "egress"); c.Note != "" {
+			t.Errorf("egress with %s: %+v", k, c)
+		}
 	}
 
 	// A gateway with nothing to find is armed, with a caveat.

@@ -15,6 +15,8 @@
 //	snare audit [-tenant ID] [-verify]    audit log, or verify its hash chain (operator key)
 //	snare deliveries [-state S] [-retry ID]  alert deliveries; requeue a dead one
 //	snare plant repo|corpus <dir>         plant honey credentials / canary docs
+//	snare plant prompt [-file F]          a passage for the system prompt (context layer)
+//	snare plant memory <dir>              memory records for a vector store (context layer)
 //	snare plant mcp -config F             write a decoy MCP server config
 //	snare decoy-mcp -config F             run the decoy MCP server on stdio
 //	snare plant gateway -config F         write a gateway config (decoys + fingerprints)
@@ -35,6 +37,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -121,6 +124,8 @@ func usage() {
                | revoke -key ID | disable -tenant ID | enable -tenant ID
   snare plant repo   [-dry-run] [-manifest F] <dir>
   snare plant corpus [-dry-run] [-manifest F] [-with-instruction] <dir>
+  snare plant prompt [-dry-run] [-manifest F] [-seed N] [-file F]
+  snare plant memory [-dry-run] [-manifest F] [-seed N] [-count N] [-format jsonl|md] <dir>
   snare plant mcp    [-dry-run] [-manifest F] -config F [-name N] [-exclude a,b]
                      [-style snake|camel|kebab] [-seed N] [-names F] [-catalog-names]
   snare plant gateway [-dry-run] [-manifest F] -config F [-style auto|snake|camel|kebab|catalog]
@@ -179,7 +184,7 @@ func client() *admin.Client {
 
 func mint(args []string) error {
 	fs := flag.NewFlagSet("mint", flag.ExitOnError)
-	kind := fs.String("kind", "", "token kind: decoy_tool, honey_credential, canary_doc, canary_url, canary_instruction, other")
+	kind := fs.String("kind", "", "token kind: decoy_tool, honey_credential, canary_doc, canary_url, canary_instruction, prompt_canary, memory_canary, other")
 	label := fs.String("label", "", "where this tripwire is planted (shown in alerts)")
 	memo := fs.String("memo", "", "optional notes")
 	_ = fs.Parse(args)
@@ -226,7 +231,7 @@ func events(args []string) error {
 func plantCmd(args []string) error {
 	if len(args) < 1 {
 		usage()
-		return fmt.Errorf("plant needs a target: repo, corpus or mcp")
+		return fmt.Errorf("plant needs a target: repo, corpus, prompt, memory, mcp or gateway")
 	}
 	target := args[0]
 	fs := flag.NewFlagSet("plant "+target, flag.ExitOnError)
@@ -243,6 +248,9 @@ func plantCmd(args []string) error {
 	refresh := fs.Bool("refresh", false, "gateway: re-fetch fingerprints for an existing -config")
 	contain := fs.String("contain", "", "gateway: opt in to containment at this stage: exfiltration or recon (off by default)")
 	provNames := fs.Bool("provenance-names", false, "gateway: send each input's path or URL argument with touches (off by default)")
+	file := fs.String("file", "", "prompt: system prompt file to append the passage to (default: print it)")
+	count := fs.Int("count", plant.DefaultMemoryCount, "memory: number of records to write")
+	format := fs.String("format", "jsonl", "memory: jsonl (one file to load into a vector store) or md (one note per record)")
 	_ = fs.Parse(args[1:])
 	styleSet := false
 	fs.Visit(func(f *flag.Flag) { styleSet = styleSet || f.Name == "style" })
@@ -264,6 +272,43 @@ func plantCmd(args []string) error {
 			entries, err = plant.Repo(c, dir, opts)
 		} else {
 			entries, err = plant.Corpus(c, dir, *withInstr, opts)
+		}
+	case "prompt":
+		if fs.NArg() != 0 {
+			return errors.New("plant prompt takes no directory; use -file to append to a system prompt file")
+		}
+		if *file != "" {
+			if err := plant.CheckManifestOutside(*manifest, filepath.Dir(*file)); err != nil {
+				return err
+			}
+		}
+		s, err := promptSeed(*seed)
+		if err != nil {
+			return err
+		}
+		var passage string
+		entries, passage, err = plant.Prompt(c, plant.PromptOptions{Options: opts, Seed: s, File: *file, Manifest: *manifest})
+		if err == nil && *file == "" && !*dry {
+			fmt.Println("Add this line to the agent's system prompt:")
+			fmt.Println()
+			fmt.Print(passage)
+			fmt.Println()
+		}
+	case "memory":
+		if fs.NArg() != 1 {
+			return errors.New("plant memory needs exactly one directory")
+		}
+		dir := fs.Arg(0)
+		if err := plant.CheckManifestOutside(*manifest, dir); err != nil {
+			return err
+		}
+		s, err := promptSeed(*seed)
+		if err != nil {
+			return err
+		}
+		entries, err = plant.Memory(c, dir, plant.MemoryOptions{Options: opts, Seed: s, Count: *count, Format: *format})
+		if err == nil && !*dry {
+			fmt.Println("Load these records into the agent's memory or vector store with your usual loader.")
 		}
 	case "mcp":
 		var ex []string
@@ -317,7 +362,7 @@ func plantCmd(args []string) error {
 			fmt.Println(snippet)
 		}
 	default:
-		return fmt.Errorf("unknown plant target %q (want repo, corpus, mcp or gateway)", target)
+		return fmt.Errorf("unknown plant target %q (want repo, corpus, prompt, memory, mcp or gateway)", target)
 	}
 	if err != nil {
 		return err
@@ -428,4 +473,10 @@ func decoyMCP(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return s.Serve(ctx, os.Stdin, os.Stdout)
+}
+
+// promptSeed parses -seed for the context plants (random when empty).
+func promptSeed(seed string) (uint64, error) {
+	n, _, err := nameOptions(seed, "")
+	return n, err
 }

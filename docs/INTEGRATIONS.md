@@ -133,6 +133,20 @@ snare plant gateway -config gw.json -provenance-names
 
 Design: [M9-provenance.md](M9-provenance.md).
 
+**The agent's prompt and memory.** Put a canary in the system prompt, and records in the
+agent's memory, so that a leaked prompt or an acted-on memory is a touch:
+
+```sh
+snare plant prompt -file system-prompt.md
+snare plant memory -count 3 memory-import
+snare plant gateway -refresh -config gw.json
+```
+
+`plant memory` writes `memory-notes.jsonl` (`-format md` for one note per record). Load it
+with whatever loads the agent's vector store or memory server. Recalling a record is not a
+touch; opening its link, using its key or sending it out is. Refresh the gateway afterwards
+so it recognizes the new values. Design: [M10-context-canaries.md](M10-context-canaries.md).
+
 ## 2. Confirm a tripwire is live without paging anyone
 
 You want to know that a touch reaches Snare and your alerting before an attacker tests it

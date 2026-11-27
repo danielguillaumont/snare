@@ -14,6 +14,12 @@ func TestClassify(t *testing.T) {
 	}{
 		{"canary_instruction", "", LayerIngest, StageSteered},
 		{"decoy_tool", "", LayerTool, StageRecon},
+		{"prompt_canary", "", LayerContext, StageSteered},
+		{"memory_canary", "", LayerContext, StageSteered},
+		{"prompt_canary", "egress", LayerEgress, StageExfiltration},
+		{"memory_canary", "egress", LayerEgress, StageExfiltration},
+		{"prompt_canary", "use", LayerUse, StageUse},
+		{"memory_canary", "use", LayerUse, StageUse},
 		{"honey_credential", "", LayerData, StageCollection},
 		{"canary_doc", "", LayerData, StageCollection},
 		{"canary_url", "", LayerData, StageCollection},

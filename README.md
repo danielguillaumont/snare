@@ -127,7 +127,8 @@ sha256sum -c SHA256SUMS --ignore-missing
 | M7 layers, stages and incidents: kill-chain severity, incident timeline, layer coverage | ✅ Built ([results](docs/M7-incidents.md#results)) |
 | M8 containment (opt-in): the leaking call is blocked, the session frozen, release audited | ✅ Built ([results](docs/M8-containment.md#results)) |
 | M9 provenance: the alert says what the agent read just before it touched a trap | ✅ Built ([results](docs/M9-provenance.md#results)) |
-| M10–M14 Snare in depth: context canaries, proof | Planned ([docs/DEPTH.md](docs/DEPTH.md)) |
+| M10 context canaries: a leaked system prompt or acted-on memory is a touch | ✅ Built ([results](docs/M10-context-canaries.md#results)) |
+| M11–M14 Snare in depth: heartbeat, adaptive deception, proof, first run | Planned ([docs/DEPTH.md](docs/DEPTH.md)) |
 | M5 design partners | Not started |
 
 Full plan and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).
