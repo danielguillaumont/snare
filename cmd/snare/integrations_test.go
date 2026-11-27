@@ -26,7 +26,7 @@ var noFlags = map[string]bool{"version": true, "keygen": true, "serve": true, "h
 var nested = map[string]bool{"plant": true, "tenant": true, "provenance": true}
 
 // Subcommands that run on their own but also have named subcommands.
-var optionalNested = map[string]map[string]bool{"gateway": {"release": true}}
+var optionalNested = map[string]map[string]bool{"gateway": {"release": true, "pins": true}}
 
 // TestIntegrationGuideCommandsParse keeps docs/INTEGRATIONS.md honest: every snare command
 // in its code blocks names a real subcommand, and every flag it passes is one that

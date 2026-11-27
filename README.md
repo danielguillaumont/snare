@@ -33,6 +33,7 @@ before making claims.
 3. **Alert.** The hit becomes an OCSF 1.3 Detection Finding. It is routed to a signed webhook,
    Splunk, Elastic or Microsoft Sentinel, and shown on a multi-tenant dashboard, where admins triage touches and disable tripwires.
 
+A one-page overview for people new to the project: [site/index.html](site/index.html).
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). What it defends against, and what it
 doesn't: [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md). Wiring it into Claude Desktop,
 Claude Code, other MCP clients and your SIEM: [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
@@ -41,7 +42,8 @@ Claude Code, other MCP clients and your SIEM: [docs/INTEGRATIONS.md](docs/INTEGR
 
 Every number below comes from a results directory linked beside it, with denominators and
 95% CIs. Thresholds were pre-registered in [docs/killtest.md](docs/killtest.md). Models: Claude
-Haiku, Sonnet and Opus.
+Haiku, Sonnet and Opus. All of it, including what didn't work, on one page:
+[docs/FINDINGS.md](docs/FINDINGS.md).
 
 | Question | Result | Source |
 |---|---|---|
@@ -50,6 +52,7 @@ Haiku, Sonnet and Opus.
 | Are generated per-install decoy names safe? | **0/300** trips on held-out hard-benign tasks (upper bound 1.3%) | [M3a-fix2](docs/results-m3a-fix2.md) |
 | Safe on an external benchmark? | AgentDojo, unmodified: **0/291** benign trips, utility **−3.4 points** (pre-registered limit −5) | [M3c](docs/results-m3c.md) |
 | Do tripwires catch hijacked agents? | About one in three credential-hunting agents, by what Snare can actually see: **92/267** (34.5%, CI 29–40%) with every layer and all 17 decoys in the tool list. That is no better than the single layer (M3a: 46/110 = 42% counting honey quoted in replies; 36% by the same measure). 0/180 benign trips. Measured on an authorized-audit proxy, not real hijacks | [M13](docs/results-m13.md), [M3a](docs/results-m3a.md) |
+| Does Snare see agents that read a trap but never use it? | With early warnings (M16), **106/138** credential hunters were warned or caught (76.8%, CI 69.1–83.1%), against 49/138 by alert-level tripwires alone. 0/60 benign runs were warned. 57 of the 106 are warnings only, which don't page | [M16](docs/results-m16.md) |
 | Can an attacker who knows Snare evade it? | Scripted evader: 200/200 evaded → **200/200 caught** after anti-fingerprinting. An attacker who reads this repo still evades generated names, including names adapted to the server (0/200 caught). Under operator-chosen names it is caught as often as one who knows nothing: 138/200 vs 143/200 | [M3a-fix](docs/results-m3a-fix.md), [M12](docs/results-m12.md) |
 
 ## Limitations

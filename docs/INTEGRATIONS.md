@@ -206,6 +206,26 @@ with whatever loads the agent's vector store or memory server. Recalling a recor
 touch; opening its link, using its key or sending it out is. Refresh the gateway afterwards
 so it recognizes the new values. Design: [M10-context-canaries.md](M10-context-canaries.md).
 
+**Warnings.** A planted gateway records two kinds of warning. Neither is ever sent to your
+sinks on its own:
+- **A honey value reached the agent.** It came back in a real tool's result, so the agent has
+  read it ([M16](M16-early-warning.md)).
+- **A real tool's definition changed.** The gateway pins each tool's name, description and
+  schema the first time it sees them, in `gw.json.pins`. A later difference under the same
+  name is a warning ([M17](M17-tool-integrity.md)).
+
+Each joins the session's incident, and a tripwire touch after it in that session is
+Critical. They show as `warning` in `snare events`, `snare incidents` and the dashboard, and
+as severity Low in exports. When a server upgrade legitimately changes a tool, review it and
+accept the new definition:
+
+```sh
+snare gateway pins -config gw.json                 # which tools changed
+snare gateway pins -config gw.json -accept send_email
+```
+
+Turn either warning off when planting, with `-exposure=false` or `-integrity=false`.
+
 ## 2. Confirm a tripwire is live without paging anyone
 
 You want to know that a touch reaches Snare and your alerting before an attacker tests it
