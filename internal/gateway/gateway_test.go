@@ -334,3 +334,89 @@ func TestServerRequestWithSameIDIsNotTheReply(t *testing.T) {
 		t.Fatalf("tools after a same-id server request: %v", got)
 	}
 }
+
+// Style adapt (docs/M12-adaptive-deception.md §1): decoys take the server's namespace, verbs,
+// argument style and punctuation, are answered as decoys, and never shadow a real tool.
+func TestAdaptStyleSpeaksTheServersVocabulary(t *testing.T) {
+	h := newHarness(t, Config{Style: "adapt", Seed: 9, Decoys: map[string]string{"read_env_secrets": "envtok01", "list_api_keys": "keytok01"}})
+	h.client(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}` + "\n")
+	h.serverGets()
+	h.server(`{"jsonrpc":"2.0","id":1,"result":{"tools":[` +
+		`{"name":"jiraFetchIssue","description":"Fetch one issue","inputSchema":{"type":"object","properties":{"issueKey":{"type":"string"}}}},` +
+		`{"name":"jiraShowBoards","description":"Show boards","inputSchema":{"type":"object","properties":{"projectKey":{"type":"string"}}}},` +
+		`{"name":"jiraSearch","description":"Search with JQL"}]}}` + "\n")
+	var m struct {
+		Result struct {
+			Tools []struct {
+				Name        string         `json:"name"`
+				Description string         `json:"description"`
+				InputSchema map[string]any `json:"inputSchema"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(h.clientGets()), &m); err != nil || len(m.Result.Tools) != 5 {
+		t.Fatalf("tools: %+v %v", m, err)
+	}
+	vocab := decoys.Learn([]decoys.RealTool{
+		{Name: "jiraFetchIssue", Description: "Fetch one issue", Params: []string{"issueKey"}},
+		{Name: "jiraShowBoards", Description: "Show boards", Params: []string{"projectKey"}},
+		{Name: "jiraSearch", Description: "Search with JQL"},
+	})
+	want, _ := decoys.Adapt(vocab, 9, nil, nil)
+	shown := map[string]decoys.Choice{}
+	for _, c := range want {
+		shown[c.Name] = c
+	}
+	var envName string
+	for _, d := range m.Result.Tools[3:] {
+		c, ok := shown[d.Name]
+		if !ok || !strings.HasPrefix(d.Name, "jira") || d.Description != c.Description || strings.HasSuffix(d.Description, ".") {
+			t.Errorf("decoy %+v is not the adapted choice", d)
+		}
+		props, _ := d.InputSchema["properties"].(map[string]any)
+		for _, p := range c.Params {
+			if _, ok := props[p.Name]; !ok {
+				t.Errorf("%s: argument %q missing from %v", d.Name, p.Name, props)
+			}
+		}
+		if c.Canonical == "read_env_secrets" {
+			envName = d.Name
+		}
+	}
+	if !strings.HasPrefix(envName, "jiraFetch") {
+		t.Fatalf("read_env_secrets shown as %q, want the server's verb", envName)
+	}
+	h.client(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"` + envName + `","arguments":{}}}` + "\n")
+	if reply := h.clientGets(); !strings.Contains(reply, "accepted") {
+		t.Fatalf("decoy reply: %s", reply)
+	}
+	if r := h.callback(); !strings.HasSuffix(r.URL.Path, "/envtok01") || r.URL.Query().Get("tool") != envName {
+		t.Fatalf("callback: %s", r.URL)
+	}
+}
+
+func TestAdaptStyleNeverShadowsARealTool(t *testing.T) {
+	// The server already has a tool with the name adaptation would produce: it stays real.
+	vocab := decoys.Learn([]decoys.RealTool{{Name: "get_ticket"}, {Name: "get_user"}})
+	picks, _ := decoys.Adapt(vocab, 4, nil, nil)
+	var clash string
+	for _, c := range picks {
+		if c.Canonical == "get_admin_credentials" {
+			clash = c.Name
+		}
+	}
+	h := newHarness(t, Config{Style: "adapt", Seed: 4, Decoys: map[string]string{"get_admin_credentials": "admtok01"}})
+	h.client(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}` + "\n")
+	h.serverGets()
+	h.server(`{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"get_ticket"},{"name":"get_user"},{"name":"` + clash + `"}]}}` + "\n")
+	got := toolNames(t, h.clientGets())
+	if n := strings.Count(","+strings.Join(got, ",")+",", ","+clash+","); n != 1 || got[2] != clash {
+		t.Fatalf("tools: %v (real %q must appear once, as the server's)", got, clash)
+	}
+	call := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"` + clash + `","arguments":{}}}` + "\n"
+	h.client(call)
+	if s := h.serverGets(); s != call {
+		t.Fatalf("real tool call altered: %q", s)
+	}
+	h.noCallback()
+}

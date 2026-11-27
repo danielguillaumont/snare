@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"text/template"
@@ -31,7 +32,20 @@ type Minter interface {
 type Options struct {
 	DryRun bool      // print what would be written; mint nothing, write nothing
 	Out    io.Writer // where dry-run output and notes go (default os.Stdout)
+
+	// Repo only (docs/M12-adaptive-deception.md §2). Layout "path" (the default) puts a token
+	// in the base URL, so opening it fires. "key" leaves the URL tokenless, so only using the
+	// key fires, and no path segment looks like a token. Adapt follows the dotenv
+	// conventions already in the target directory: variable prefix and quoting.
+	Layout string
+	Adapt  bool
 }
+
+// Layouts for Options.Layout.
+const (
+	LayoutPath = "path"
+	LayoutKey  = "key"
+)
 
 func (o Options) out() io.Writer {
 	if o.Out == nil {
@@ -154,18 +168,19 @@ const RepoFile = ".env.legacy"
 
 const repoTemplate = `# Legacy payments integration (pre-2024 migration).
 # Kept for the reconciliation job until finance signs off. Do not delete.
-PAYMENTS_API_BASE_URL={{.URL}}
-PAYMENTS_API_KEY={{.Key}}
+{{.P}}PAYMENTS_API_BASE_URL={{.URL}}
+{{.P}}PAYMENTS_API_KEY={{.Key}}
 {{- if .Host}}
-PAYMENTS_DB_HOST={{.Host}}
-PAYMENTS_DB_USER=recon_svc
-PAYMENTS_DB_PASSWORD={{.Password}}
+{{.P}}PAYMENTS_DB_HOST={{.Host}}
+{{.P}}PAYMENTS_DB_USER={{.User}}
+{{.P}}PAYMENTS_DB_PASSWORD={{.Password}}
 {{- end}}
 `
 
 type honeyValues struct {
 	URL, Key, Host, Password string
 	Instruction              bool
+	P, User                  string // repo: variable prefix and the DB user
 }
 
 func values(t map[string]admin.MintResponse) honeyValues {
@@ -181,13 +196,37 @@ func Repo(m Minter, dir string, o Options) ([]Entry, error) {
 	if _, err := os.Stat(path); err == nil {
 		return nil, fmt.Errorf("%w: %s", ErrExists, path)
 	}
+	fields := []field{{"base_url", false}, {"api_key", false}, {"db_host", true}, {"db_password", true}}
+	switch o.Layout {
+	case "", LayoutPath:
+	case LayoutKey:
+		fields = fields[1:] // the base URL carries no token
+	default:
+		return nil, fmt.Errorf("layout %q: want %s or %s", o.Layout, LayoutPath, LayoutKey)
+	}
+	style := dotenvStyle{}
+	if o.Adapt {
+		style = learnDotenv(dir)
+	}
 	label := "repo " + filepath.Base(absOr(dir)) + ": " + RepoFile
-	toks, entries, err := mintFields(minter(m, o), "repo", "honey_credential", label, "planted by snare plant repo", path,
-		[]field{{"base_url", false}, {"api_key", false}, {"db_host", true}, {"db_password", true}})
+	toks, entries, err := mintFields(minter(m, o), "repo", "honey_credential", label, "planted by snare plant repo", path, fields)
 	if err != nil {
 		return nil, err
 	}
-	content, err := render(repoTemplate, values(toks))
+	v := values(toks)
+	if o.Layout == LayoutKey {
+		v.URL = keyLayoutURL(toks["api_key"])
+	}
+	v.User = "recon_svc"
+	v.P = style.Prefix
+	if style.Quote {
+		for _, f := range []*string{&v.URL, &v.Key, &v.Host, &v.Password, &v.User} {
+			if *f != "" {
+				*f = `"` + *f + `"`
+			}
+		}
+	}
+	content, err := render(repoTemplate, v)
 	if err != nil {
 		return nil, err
 	}
@@ -195,6 +234,76 @@ func Repo(m Minter, dir string, o Options) ([]Entry, error) {
 		return nil, err
 	}
 	return entries, nil
+}
+
+// keyLayoutURL is the base URL with no token: the server's public URL and URL path, which the
+// minted key's URL starts with.
+func keyLayoutURL(key admin.MintResponse) string {
+	return strings.TrimRight(strings.TrimSuffix(key.URL, key.Token), "/")
+}
+
+// dotenvStyle is what plant repo -adapt learns from the dotenv files already in a directory.
+type dotenvStyle struct {
+	Prefix string // e.g. "NORTHWIND_", when nearly every variable has it
+	Quote  bool   // values are mostly double-quoted
+}
+
+var dotenvKeyRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// Prefixes that name a kind of setting rather than the application: never taken as the
+// repo's prefix, even when most variables in a small file share one.
+var settingWords = map[string]bool{"DB": true, "DATABASE": true, "PG": true, "POSTGRES": true, "MYSQL": true,
+	"REDIS": true, "AWS": true, "SMTP": true, "MAIL": true, "API": true, "PAYMENTS": true}
+
+// learnDotenv reads variable names and quoting from .env, .env.* and *.env files directly in
+// dir. Values are looked at only to see whether they are quoted; nothing is kept.
+func learnDotenv(dir string) dotenvStyle {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return dotenvStyle{}
+	}
+	var keys []string
+	values, quoted := 0, 0
+	for _, e := range ents {
+		n := e.Name()
+		if !e.Type().IsRegular() || n == RepoFile || !(n == ".env" || strings.HasPrefix(n, ".env.") || strings.HasSuffix(n, ".env")) {
+			continue
+		}
+		if info, err := e.Info(); err != nil || info.Size() > 256<<10 {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, n))
+		if err != nil {
+			continue
+		}
+		for _, ln := range strings.Split(string(b), "\n") {
+			ln = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(ln), "export "))
+			k, v, ok := strings.Cut(ln, "=")
+			if !ok || strings.HasPrefix(ln, "#") || !dotenvKeyRE.MatchString(k) {
+				continue
+			}
+			keys = append(keys, k)
+			if v = strings.TrimSpace(v); v != "" {
+				values++
+				if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
+					quoted++
+				}
+			}
+		}
+	}
+	st := dotenvStyle{Quote: values > 0 && quoted*2 > values}
+	count := map[string]int{}
+	for _, k := range keys {
+		if p, _, ok := strings.Cut(k, "_"); ok && p != "" {
+			count[strings.ToUpper(p)]++
+		}
+	}
+	for p, c := range count {
+		if c >= 4 && c*5 >= 4*len(keys) && !settingWords[p] {
+			st.Prefix = p + "_"
+		}
+	}
+	return st
 }
 
 // ---- corpus ----

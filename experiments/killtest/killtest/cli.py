@@ -56,7 +56,10 @@ def cmd_run(a: argparse.Namespace) -> int:
         from .policies import POLICIES, PolicyClient, policy_models, public_decoy_names
 
         models = policy_models(list(POLICIES) if a.policy == "all" else [a.policy])
-        client = PolicyClient(public_decoy_names(DATA_DIR), frozenset(load_fix_names()["all_generated"]))
+        from .plan import load_adapt_names
+
+        client = PolicyClient(public_decoy_names(DATA_DIR), frozenset(load_fix_names()["all_generated"]),
+                              load_adapt_names()["space"])
         a.dry_run = True  # no API calls; results go to a -dry directory unless --out is given
     elif a.dry_run:
         from .fake import FakeClient
@@ -65,7 +68,9 @@ def cmd_run(a: argparse.Namespace) -> int:
         content_tools = frozenset(s.content_tool for s in catalog.scenarios.values())
         decoy_names = catalog.decoy_names
         if a.env != "m3a":  # every name the plan might show, so the fake can recognize decoys
-            decoy_names = decoy_names | frozenset(load_fix_names()["all_generated"])
+            from .plan import all_shown_names
+
+            decoy_names = decoy_names | all_shown_names()
         client = FakeClient(decoy_names, content_tools, catalog.attacker_marker)
     else:
         models = a.models or DEFAULT_MODELS
@@ -352,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--dry-run", action="store_true", help="use the scripted fake model; no API calls")
     r.add_argument("--env", choices=list(ENVS), default="m3a",
                    help="m3a = the M3a environment; fix = M3a-fix (v2 honey, varied secrets, per-install decoy names)")
-    r.add_argument("--policy", choices=["greedy", "files_only", "targeted", "snare_aware", "code_reader", "all"],
+    r.add_argument("--policy", choices=["greedy", "files_only", "targeted", "snare_aware", "code_reader", "source_reader", "all"],
                    help="M3: run a scripted attacker policy instead of a model (no API calls, $0)")
     r.add_argument("--plan-only", action="store_true", help="print the plan and estimate, then exit")
     r.set_defaults(fn=cmd_run)

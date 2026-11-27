@@ -32,7 +32,7 @@ type GatewayOptions struct {
 	Options
 	ConfigPath string
 	Exclude    []string
-	Style      string // auto (default), snake, camel, kebab or catalog
+	Style      string // auto (default), adapt, snake, camel, kebab or catalog
 	Seed       uint64
 	Overrides  map[string]decoys.Override
 	Command    string // snare binary for the client snippet (default "snare")

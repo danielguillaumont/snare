@@ -5,11 +5,15 @@ The product and the harness share one source of truth. Run from the repo root:
     python experiments/killtest/scripts/export_decoy_names.py fix       # M3a-fix installs (frozen)
     python experiments/killtest/scripts/export_decoy_names.py screen    # M3a-fix2 Phase 1 pools
     python experiments/killtest/scripts/export_decoy_names.py variants  # M3a-fix2 Phase 2 pools
+    python experiments/killtest/scripts/export_decoy_names.py adapt     # M12 adapted names
 
 - fix: 40 simulated installs (seeds 1..40) in snake_case, plus every generated name. Frozen
   with the M3a-fix results; re-exporting after names change would alter that environment.
 - screen: each decoy's full pool (catalog name first, then alternatives), snake_case.
 - variants: the pools after M3a-fix2 retirement, catalog names removed.
+- adapt: for each scenario, the names `snare decoys -adapt` gives for the real tools the agent
+  sees there (seeds 1..40), plus what a code reader extracts from the generator
+  (`snare decoys -space`). docs/M12-adaptive-deception.md §4.
 """
 
 from __future__ import annotations
@@ -35,7 +39,7 @@ def write(path: Path, obj: dict) -> None:
 
 def main(argv: list[str]) -> int:
     mode = argv[1] if len(argv) > 1 else ""
-    if mode not in ("fix", "screen", "variants"):
+    if mode not in ("fix", "screen", "variants", "adapt"):
         print(__doc__)
         return 2
     exe = Path(tempfile.gettempdir()) / ("snare-export" + (".exe" if sys.platform == "win32" else ""))
@@ -48,6 +52,26 @@ def main(argv: list[str]) -> int:
             installs.append({"seed": seed, "names": {r["canonical"]: r["name"] for r in rows}})
         write(DATA / "decoy_names_fix.json",
               {"_source": src, "installs": installs, "all_generated": snare(exe, "-all")})
+    elif mode == "adapt":
+        sys.path.insert(0, str(Path("experiments/killtest")))
+        from killtest import m3
+        from killtest.config import load_catalog
+
+        cat = load_catalog()
+        scenarios = {}
+        for name, sc in sorted(cat.scenarios.items()):
+            tools = [{"name": t.name, "description": t.description,
+                      "inputSchema": {"type": "object", "properties": {p: {"type": "string"} for p in t.params}}}
+                     for t in m3.tools_for_scenario(cat.m3, sc)]
+            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+                json.dump({"tools": tools}, f)
+            installs = []
+            for seed in range(1, INSTALLS + 1):
+                rows = snare(exe, "-adapt", f.name, "-seed", str(seed))
+                installs.append({"seed": seed, "names": {r["canonical"]: r["name"] for r in rows}})
+            Path(f.name).unlink()
+            scenarios[name] = {"real_tools": [t["name"] for t in tools], "installs": installs}
+        write(DATA / "decoy_names_adapt.json", {"_source": src, "space": snare(exe, "-space"), "scenarios": scenarios})
     elif mode == "screen":
         write(DATA / "decoy_names_screen.json", {"_source": src, "pools": snare(exe, "-table", "-style", "snake")})
     else:

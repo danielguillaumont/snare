@@ -21,10 +21,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/danielguillaumont/snare/internal/decoys"
 	"github.com/danielguillaumont/snare/internal/token"
@@ -36,8 +36,9 @@ import (
 type Config struct {
 	CallbackURL string `json:"callback_url"`
 	URLPath     string `json:"url_path,omitempty"`
-	// Style is how decoy names are written: "auto" (match the real server's tools), "snake",
-	// "camel", "kebab", or "catalog" (the public catalog names; easy to fingerprint).
+	// Style is how decoy names are written: "auto" (match the real server's tools), "adapt"
+	// (the real server's namespace, verbs and conventions; docs/M12-adaptive-deception.md),
+	// "snake", "camel", "kebab", or "catalog" (the public catalog names; easy to fingerprint).
 	Style  string                     `json:"style"`
 	Seed   uint64                     `json:"seed"`
 	Decoys map[string]string          `json:"decoys"` // catalog name -> token
@@ -75,9 +76,9 @@ func (c Config) Validate() error {
 		return errors.New("callback_url is required")
 	}
 	switch c.Style {
-	case "auto", "snake", "camel", "kebab", "catalog":
+	case "auto", "adapt", "snake", "camel", "kebab", "catalog":
 	default:
-		return fmt.Errorf("style %q: want auto, snake, camel, kebab or catalog", c.Style)
+		return fmt.Errorf("style %q: want auto, adapt, snake, camel, kebab or catalog", c.Style)
 	}
 	for name, tok := range c.Decoys {
 		if _, ok := decoys.Get(name); !ok {
@@ -116,12 +117,14 @@ type Gateway struct {
 	matcher *token.Matcher
 
 	mu      sync.Mutex
-	pending map[string]bool   // ids of the client's tools/list requests awaiting a reply
-	real    map[string]bool   // real tool names seen so far
-	style   string            // resolved decoy style, fixed at the first tools/list reply
-	byName  map[string]string // shown decoy name -> catalog name
-	descs   map[string]string // catalog name -> description shown
-	frozen  bool              // contained (M8)
+	pending map[string]bool           // ids of the client's tools/list requests awaiting a reply
+	real    map[string]bool           // real tool names seen so far
+	style   string                    // resolved decoy style, fixed at the first tools/list reply
+	byName  map[string]string         // shown decoy name -> catalog name
+	descs   map[string]string         // catalog name -> description shown
+	params  map[string][]decoys.Param // catalog name -> arguments shown, when adapted (M12)
+	tools   []decoys.RealTool         // real tools seen so far, for style adapt
+	frozen  bool                      // contained (M8)
 	// persisted: the freeze is in the state file, so removing the file releases it.
 	persisted bool
 	calls     map[string]callInfo // forwarded real tool calls awaiting a result (M9)
@@ -346,9 +349,21 @@ func (g *Gateway) inject(msg []byte) ([]byte, error) {
 	}
 	for _, raw := range tools {
 		var t struct {
-			Name string `json:"name"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			InputSchema struct {
+				Properties map[string]json.RawMessage `json:"properties"`
+			} `json:"inputSchema"`
 		}
 		if json.Unmarshal(raw, &t) == nil && t.Name != "" {
+			if !g.real[t.Name] {
+				rt := decoys.RealTool{Name: t.Name, Description: t.Description}
+				for p := range t.InputSchema.Properties {
+					rt.Params = append(rt.Params, p)
+				}
+				sort.Strings(rt.Params)
+				g.tools = append(g.tools, rt)
+			}
 			g.real[t.Name] = true
 		}
 	}
@@ -370,7 +385,11 @@ func (g *Gateway) inject(msg []byte) ([]byte, error) {
 		if shown == "" || g.real[shown] {
 			continue // real tools always win
 		}
-		entry, _ := json.Marshal(map[string]any{"name": shown, "description": g.descs[t.Name], "inputSchema": t.InputSchema()})
+		schema := t.InputSchema()
+		if ps, ok := g.params[t.Name]; ok {
+			schema = decoys.Tool{Params: ps}.InputSchema()
+		}
+		entry, _ := json.Marshal(map[string]any{"name": shown, "description": g.descs[t.Name], "inputSchema": schema})
 		tools = append(tools, entry)
 	}
 	if result["tools"], _ = json.Marshal(tools); result["tools"] == nil {
@@ -391,7 +410,8 @@ func (g *Gateway) shownName(canon string) string {
 	return ""
 }
 
-// chooseNames fixes the decoy names, matching the real tools' style when Style is auto.
+// chooseNames fixes the decoy names, matching the real tools' style when Style is auto, or
+// their whole vocabulary when it is adapt.
 // Called with g.mu held, after the first final tools/list page.
 func (g *Gateway) chooseNames() error {
 	style := g.Cfg.Style
@@ -417,12 +437,22 @@ func (g *Gateway) chooseNames() error {
 		}
 		return nil
 	}
-	picks, err := decoys.Pick(g.Cfg.Seed, style, g.Cfg.Names)
+	var picks []decoys.Choice
+	var err error
+	if style == "adapt" {
+		picks, err = decoys.Adapt(decoys.Learn(g.tools), g.Cfg.Seed, g.Cfg.Names, g.real)
+	} else {
+		picks, err = decoys.Pick(g.Cfg.Seed, style, g.Cfg.Names)
+	}
 	if err != nil {
 		return err
 	}
+	g.params = map[string][]decoys.Param{}
 	for _, c := range picks {
 		g.byName[c.Name], g.descs[c.Canonical] = c.Canonical, c.Description
+		if style == "adapt" {
+			g.params[c.Canonical] = c.Params
+		}
 	}
 	return nil
 }
@@ -444,26 +474,7 @@ func (g *Gateway) decoyFor(name string) (string, bool) {
 
 // DetectStyle returns the most common naming style among tool names: snake, camel or kebab
 // (snake when there is no signal).
-func DetectStyle(names []string) string {
-	count := map[string]int{}
-	for _, n := range names {
-		switch {
-		case strings.Contains(n, "_"):
-			count["snake"]++
-		case strings.Contains(n, "-"):
-			count["kebab"]++
-		case strings.IndexFunc(n[min(1, len(n)):], unicode.IsUpper) >= 0:
-			count["camel"]++
-		}
-	}
-	best := "snake"
-	for _, s := range []string{"camel", "kebab"} {
-		if count[s] > count[best] {
-			best = s
-		}
-	}
-	return best
-}
+func DetectStyle(names []string) string { return decoys.DetectStyle(names) }
 
 func decoyReply(id json.RawMessage) []byte {
 	b := make([]byte, 8)

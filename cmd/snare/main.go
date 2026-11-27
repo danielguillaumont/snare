@@ -40,6 +40,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -125,13 +126,13 @@ func usage() {
   snare deliveries [-state pending|delivered|dead] [-limit N] [-retry ID]
   snare tenant create -name N | list | key -tenant ID [-role admin|viewer]
                | revoke -key ID | disable -tenant ID | enable -tenant ID
-  snare plant repo   [-dry-run] [-manifest F] <dir>
+  snare plant repo   [-dry-run] [-manifest F] [-layout path|key] [-adapt] <dir>
   snare plant corpus [-dry-run] [-manifest F] [-with-instruction] <dir>
   snare plant prompt [-dry-run] [-manifest F] [-seed N] [-file F]
   snare plant memory [-dry-run] [-manifest F] [-seed N] [-count N] [-format jsonl|md] <dir>
   snare plant mcp    [-dry-run] [-manifest F] -config F [-name N] [-exclude a,b]
                      [-style snake|camel|kebab] [-seed N] [-names F] [-catalog-names]
-  snare plant gateway [-dry-run] [-manifest F] -config F [-style auto|snake|camel|kebab|catalog]
+  snare plant gateway [-dry-run] [-manifest F] -config F [-style auto|adapt|snake|camel|kebab|catalog]
                      [-seed N] [-names F] [-exclude a,b] [-contain exfiltration|recon]
                      [-provenance-names] [-heartbeat 15m|0]
                      | -refresh -config F
@@ -140,7 +141,7 @@ func usage() {
   snare heartbeat
   snare provenance find -hash FINGERPRINT [dir ...]
   snare decoy-mcp -config F
-  snare decoys [-seed N -style S -names F [-screen] | -all | -table]
+  snare decoys [-seed N -style S -names F [-screen] | -adapt TOOLS.json [-seed N] | -all | -table | -space]
 `)
 }
 
@@ -242,10 +243,12 @@ func plantCmd(args []string) error {
 	dry := fs.Bool("dry-run", false, "print what would be written; mint and write nothing")
 	manifest := fs.String("manifest", "snare-planted.json", "manifest file (must be outside the planted directory)")
 	withInstr := fs.Bool("with-instruction", false, "corpus: also add a canary instruction (opt-in)")
+	layout := fs.String("layout", plant.LayoutPath, "repo: path (a token in the base URL; opening it fires) or key (a tokenless URL; only using the key fires)")
+	adaptRepo := fs.Bool("adapt", false, "repo: follow the dotenv files already in the directory (variable prefix, quoting)")
 	config := fs.String("config", "", "mcp: path for the decoy-mcp config file")
 	name := fs.String("name", "internal-ops", "mcp: server name advertised to clients")
 	exclude := fs.String("exclude", "", "mcp: comma-separated decoys to skip (ones overlapping the agent's real job)")
-	style := fs.String("style", "snake", "mcp: decoy naming style to match your real tools: snake, camel or kebab")
+	style := fs.String("style", "snake", "decoy naming style. mcp: snake, camel or kebab. gateway: auto (default), adapt (the real server's vocabulary), snake, camel, kebab or catalog")
 	seed := fs.String("seed", "", "mcp: seed for per-install decoy names (default: random)")
 	namesFile := fs.String("names", "", "mcp: JSON file {catalog_name: {name, description}} of your own decoy names")
 	catalogNames := fs.Bool("catalog-names", false, "mcp: use the public catalog names (easy to fingerprint; not recommended)")
@@ -259,7 +262,7 @@ func plantCmd(args []string) error {
 	_ = fs.Parse(args[1:])
 	styleSet := false
 	fs.Visit(func(f *flag.Flag) { styleSet = styleSet || f.Name == "style" })
-	opts := plant.Options{DryRun: *dry}
+	opts := plant.Options{DryRun: *dry, Layout: *layout, Adapt: *adaptRepo}
 	c := client()
 
 	var entries []plant.Entry
@@ -422,11 +425,16 @@ func decoysCmd(args []string) error {
 	seed := fs.String("seed", "", "seed (default: random)")
 	namesFile := fs.String("names", "", "JSON file of operator-defined names")
 	screen := fs.Bool("screen", false, "print the decoys as `killtest screen --decoys` input (names as shown)")
+	adaptFrom := fs.String("adapt", "", "a saved tools/list reply: print the names an adapt-style gateway would show for that server")
+	space := fs.Bool("space", false, "print what a code reader can extract to recognise adapted names (stems, verb classes)")
 	_ = fs.Parse(args)
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if *all {
 		return enc.Encode(decoys.AllGenerated())
+	}
+	if *space {
+		return enc.Encode(decoys.AdaptSpace())
 	}
 	if *table {
 		pools, err := decoys.Pools(*style)
@@ -439,8 +447,21 @@ func decoysCmd(args []string) error {
 	if err != nil {
 		return err
 	}
-	picks, err := decoys.Pick(n, *style, ov)
-	if err != nil {
+	var picks []decoys.Choice
+	if *adaptFrom != "" {
+		tools, err := loadToolsList(*adaptFrom)
+		if err != nil {
+			return err
+		}
+		real := map[string]bool{}
+		for _, t := range tools {
+			real[t.Name] = true
+		}
+		picks, err = decoys.Adapt(decoys.Learn(tools), n, ov, real)
+		if err != nil {
+			return err
+		}
+	} else if picks, err = decoys.Pick(n, *style, ov); err != nil {
 		return err
 	}
 	type row struct {
@@ -452,17 +473,63 @@ func decoysCmd(args []string) error {
 	var out []row
 	for _, p := range picks {
 		r := row{Canonical: p.Canonical, Name: p.Name, Description: p.Description}
-		if *screen {
+		if *screen || p.Params != nil {
 			// Screen exactly what this install will show: same name, description and arguments.
-			t, _ := decoys.Get(p.Canonical)
+			ps := p.Params
+			if ps == nil {
+				t, _ := decoys.Get(p.Canonical)
+				ps = t.Params
+			}
 			r.Params = map[string]string{}
-			for _, prm := range t.Params {
+			for _, prm := range ps {
 				r.Params[prm.Name] = prm.Description
 			}
 		}
 		out = append(out, r)
 	}
 	return enc.Encode(out)
+}
+
+// loadToolsList reads a saved MCP tools/list reply: the whole JSON-RPC response, its result
+// ({"tools": [...]}), or the bare array.
+func loadToolsList(path string) ([]decoys.RealTool, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	type tool struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		InputSchema struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+		} `json:"inputSchema"`
+	}
+	var list []tool
+	var env struct {
+		Tools  []tool `json:"tools"`
+		Result struct {
+			Tools []tool `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(b, &list); err != nil {
+		if err := json.Unmarshal(b, &env); err != nil {
+			return nil, fmt.Errorf("%s: not a tools/list reply: %w", path, err)
+		}
+		list = append(env.Tools, env.Result.Tools...)
+	}
+	if len(list) == 0 {
+		return nil, fmt.Errorf("%s: no tools", path)
+	}
+	var out []decoys.RealTool
+	for _, t := range list {
+		rt := decoys.RealTool{Name: t.Name, Description: t.Description}
+		for p := range t.InputSchema.Properties {
+			rt.Params = append(rt.Params, p)
+		}
+		sort.Strings(rt.Params)
+		out = append(out, rt)
+	}
+	return out, nil
 }
 
 func decoyMCP(args []string) error {

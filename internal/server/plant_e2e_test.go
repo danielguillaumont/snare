@@ -27,6 +27,7 @@ import (
 	"github.com/danielguillaumont/snare/internal/admin"
 	"github.com/danielguillaumont/snare/internal/mcp"
 	"github.com/danielguillaumont/snare/internal/plant"
+	"github.com/danielguillaumont/snare/internal/store"
 )
 
 // field returns the token ID planted for one honey field (each field has its own token).
@@ -207,5 +208,69 @@ func TestEndToEndPlantedTripwiresFire(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repo, "snare-planted.json")); err == nil {
 		t.Error("manifest written into planted repo")
+	}
+}
+
+// The key layout (docs/M12-adaptive-deception.md §2): the base URL carries no token, so opening
+// it is silent, and the planted key still fires when it is used against that URL.
+func TestEndToEndKeyLayout(t *testing.T) {
+	cfg := Config{
+		Key:       bytes.Repeat([]byte{12}, 32),
+		AdminKey:  []byte("test-admin-key-0123456789abcdef"),
+		HTTPAddr:  "127.0.0.1:0",
+		AdminAddr: "127.0.0.1:0",
+		PublicURL: "http://cb.test",
+		DBPath:    filepath.Join(t.TempDir(), "snare.db"),
+	}
+	s, err := Start(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Shutdown(context.Background())
+	c := &admin.Client{BaseURL: "http://" + s.AdminAddr, Key: string(cfg.AdminKey)}
+	repo := t.TempDir()
+	es, err := plant.Repo(c, repo, plant.Options{Layout: plant.LayoutKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, _ := os.ReadFile(filepath.Join(repo, plant.RepoFile))
+	vals := map[string]string{}
+	for _, line := range strings.Split(string(env), "\n") {
+		if k, v, ok := strings.Cut(line, "="); ok && !strings.HasPrefix(k, "#") {
+			vals[k] = v
+		}
+	}
+	base, key := vals["PAYMENTS_API_BASE_URL"], vals["PAYMENTS_API_KEY"]
+	if base != "http://cb.test/v1" || key == "" {
+		t.Fatalf("planted: %v", vals)
+	}
+	get := func(auth string) {
+		t.Helper()
+		req, _ := http.NewRequest("GET", "http://"+s.HTTPAddr+"/v1/payouts", nil)
+		req.Host = "cb.test"
+		if auth != "" {
+			req.Header.Set("Authorization", "Bearer "+auth)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+	}
+	get("") // opening the URL alone: silent
+	time.Sleep(200 * time.Millisecond)
+	if evs, _ := c.EventsFiltered(store.EventFilter{}, 10); len(evs) != 0 {
+		t.Fatalf("the tokenless URL fired: %+v", evs)
+	}
+	get(key)
+	id := field(es, "api_key")
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		evs, _ := c.Events(id, 10)
+		if len(evs) == 1 && evs[0].Channel == "http" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the key used against the base URL did not fire: %+v", evs)
+		}
 	}
 }
