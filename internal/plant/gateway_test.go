@@ -35,8 +35,21 @@ func TestGatewayConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != len(decoys.Catalog)-1 || len(cfg.Decoys) != len(entries) {
+	// One entry per decoy, plus the heartbeat token (docs/M11-heartbeat.md), minted as a
+	// heartbeat so its touches are never alerts.
+	if len(entries) != len(decoys.Catalog) || len(cfg.Decoys) != len(entries)-1 {
 		t.Fatalf("entries %d, decoys %d", len(entries), len(cfg.Decoys))
+	}
+	last := entries[len(entries)-1]
+	if hb := cfg.Heartbeat; hb == nil || hb.Every != "15m" || hb.Token == "" || last.Kind != "heartbeat" || f.calls[len(f.calls)-1].Kind != "heartbeat" {
+		t.Fatalf("heartbeat: %+v, entry %+v, kinds %v", cfg.Heartbeat, last, f.calls)
+	}
+	// -heartbeat 0 plants none; a bad interval is refused.
+	if es, _, err := Gateway(&fakeGW{}, GatewayOptions{ConfigPath: filepath.Join(t.TempDir(), "gw.json"), Heartbeat: "0"}); err != nil || len(es) != len(decoys.Catalog) {
+		t.Fatalf("heartbeat 0: %d entries, %v", len(es), err)
+	}
+	if _, _, err := Gateway(&fakeGW{}, GatewayOptions{ConfigPath: filepath.Join(t.TempDir(), "gw.json"), Heartbeat: "10s"}); err == nil {
+		t.Fatal("a 10s heartbeat was accepted")
 	}
 	if _, ok := cfg.Decoys["list_api_keys"]; ok {
 		t.Error("excluded decoy planted")

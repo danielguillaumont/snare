@@ -33,6 +33,7 @@ type Metrics struct {
 	Suppressed *metrics.Counter
 	Shed       *metrics.Counter
 	Muted      *metrics.Counter
+	Heartbeats *metrics.Counter // channel (M11)
 	Deliveries *metrics.Counter // sink, result
 	Latency    *metrics.Histogram
 }
@@ -44,6 +45,7 @@ func NewMetrics(r *metrics.Registry, st *store.Store) *Metrics {
 		Suppressed: r.Counter("snare_alerts_suppressed_total", "Hits stored without an alert because an identical one was sent within the dedup window."),
 		Shed:       r.Counter("snare_alerts_shed_total", "Hits stored without an alert because the delivery outbox was full."),
 		Muted:      r.Counter("snare_hits_muted_total", "Hits on disabled tripwires: stored, never alerted."),
+		Heartbeats: r.Counter("snare_heartbeats_total", "Heartbeat touches received (docs/M11-heartbeat.md), by listener channel. Never alerted.", "channel"),
 		Deliveries: r.Counter("snare_deliveries_total", "Delivery attempts by sink type and result (ok, retry, dead).", "sink", "result"),
 		Latency: r.Histogram("snare_delivery_latency_seconds", "Time from touch to successful delivery.",
 			[]float64{0.05, 0.25, 1, 5, 30, 120, 600, 3600, 14400}),
@@ -450,12 +452,16 @@ func (p *Pipeline) Hit(ctx context.Context, tm token.Match, channel, sourceIP, d
 		inputs = append(inputs, store.Input{Tool: in.Tool, Fingerprint: in.Fingerprint, Length: in.Length,
 			AgeSeconds: in.AgeSeconds, Source: in.Source})
 	}
-	_, ev, _, queued, err := p.Store.RecordHit(ctx, store.Event{
+	tok, ev, _, queued, err := p.Store.RecordHit(ctx, store.Event{
 		TokenID: tokenID, Channel: channel, SourceIP: sourceIP, Detail: truncate(detail, 512), At: at,
 		PreviousKey: tm.PreviousKey, Via: lc.Via, Session: lc.Session, Containment: lc.Containment, Inputs: inputs,
 	}, alert)
 	if err != nil {
 		return fmt.Errorf("record event: %w", err)
+	}
+	if tok.Kind == store.KindHeartbeat { // recorded as a heartbeat, never an alert (M11)
+		m.Heartbeats.Inc(channel)
+		return nil
 	}
 	m.Hits.Inc(channel)
 	switch {

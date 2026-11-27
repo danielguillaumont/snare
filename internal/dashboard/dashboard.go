@@ -16,6 +16,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net"
@@ -46,6 +47,7 @@ type Dashboard struct {
 	TrustProxy bool   // client IP from the last X-Forwarded-For entry (behind our own proxy)
 	Log        *slog.Logger
 	Now        func() time.Time
+	Beats      store.BeatPolicy // heartbeat channels (docs/M11-heartbeat.md)
 
 	tmpl     *template.Template
 	mu       sync.Mutex
@@ -73,6 +75,15 @@ func (d *Dashboard) Handler() (http.Handler, error) {
 	}
 	t, err := template.New("").Funcs(template.FuncMap{
 		"ts": func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05Z") },
+		"ago": func(s int64) string { // seconds, as "N s / min / h ago"
+			switch {
+			case s < 120:
+				return fmt.Sprintf("%d s ago", s)
+			case s < 7200:
+				return fmt.Sprintf("%d min ago", s/60)
+			}
+			return fmt.Sprintf("%d h ago", s/3600)
+		},
 	}).ParseFS(assets, "templates/*.html")
 	if err != nil {
 		return nil, err
@@ -319,9 +330,14 @@ func (d *Dashboard) overview(w http.ResponseWriter, r *http.Request, s session) 
 		d.fail(w, err)
 		return
 	}
+	hs, err := v.ListHeartbeats(r.Context())
+	if err != nil {
+		d.fail(w, err)
+		return
+	}
 	d.render(w, "overview.html", map[string]any{
 		"S": s, "Tokens": toks, "Events": rows, "Touched": touched, "TouchedCount": len(touched),
-		"Critical": critical, "Open": open, "Dead": len(dead),
+		"Critical": critical, "Open": open, "Dead": len(dead), "Beats": d.Beats.Status(hs, d.now()),
 	})
 }
 

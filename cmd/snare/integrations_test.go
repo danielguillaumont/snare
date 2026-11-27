@@ -20,7 +20,7 @@ func TestMain(m *testing.M) {
 }
 
 // Subcommands that take no flags; asking them for -h would run them (serve would listen).
-var noFlags = map[string]bool{"version": true, "keygen": true, "serve": true}
+var noFlags = map[string]bool{"version": true, "keygen": true, "serve": true, "heartbeat": true}
 
 // Subcommands whose first argument selects a further subcommand with its own flag set.
 var nested = map[string]bool{"plant": true, "tenant": true, "provenance": true}

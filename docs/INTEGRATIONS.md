@@ -175,6 +175,20 @@ shows up on the dashboard without paging anyone. To exercise a sink without touc
 tripwire, use `POST /api/sinks/{id}/test` (below). It sends a finding marked
 Informational, which the shipped detection rules ignore.
 
+**Keep it verified.** One manual check shows the path worked once. To know it still works,
+turn on the heartbeat. The server then touches its own heartbeat token through its public
+URL and DNS name on a schedule, and every planted gateway beats every 15 minutes. A
+heartbeat is never an event or an alert.
+
+```sh
+snare heartbeat
+```
+
+It prints each channel's last verified time, and exits non-zero if one is stale or has
+never beaten. The dashboard shows the same, and the metrics expose
+`snare_heartbeat_stale{channel}`. Alert on it being 1. Turn the probe on with
+`SNARE_HEARTBEAT=15m` on the server. Design: [M11-heartbeat.md](M11-heartbeat.md).
+
 ## 3. Route alerts to your tools
 
 **Operator-wide.** `SNARE_WEBHOOK_URL` and `SNARE_WEBHOOK_SECRET` send every alert to one

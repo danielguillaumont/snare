@@ -84,6 +84,13 @@ func (c *Client) Incidents(limit int) ([]store.Incident, error) {
 }
 
 // Incident returns one incident and its timeline.
+// Heartbeats returns the tenant's heartbeat channels (docs/M11-heartbeat.md).
+func (c *Client) Heartbeats() ([]store.BeatState, error) {
+	var out []store.BeatState
+	err := c.do("GET", "/api/heartbeats", nil, &out)
+	return out, err
+}
+
 func (c *Client) Incident(id int64) (IncidentDetail, error) {
 	var d IncidentDetail
 	err := c.do("GET", fmt.Sprintf("/api/incidents/%d", id), nil, &d)

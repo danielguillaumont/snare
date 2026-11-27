@@ -8,6 +8,18 @@
     {{if .Critical}}<div class="crit" title="open touches that were Critical: 2 or more tripwires or stages, or exfiltration or use"><b>{{.Critical}}</b> open critical</div>{{end}}
     {{if .Dead}}<div class="crit"><a href="/sinks"><b>{{.Dead}}</b> undelivered</a></div>{{end}}
   </section>
+  {{if .Beats}}<h2>Channels</h2>
+  <table class="beats">
+    <thead><tr><th>Channel</th><th>Last verified</th><th>Heartbeats</th><th>Last from</th></tr></thead>
+    <tbody>
+    {{range .Beats}}<tr>
+      <td>{{.Channel}}</td>
+      <td>{{if eq .State "never"}}<span class="tag crit" title="this channel should be beating and has never been seen">never</span>{{else if eq .State "stale"}}<span class="tag crit" title="no heartbeat within the stale limit: this path may be broken">stale · {{ago .AgeSeconds}}</span>{{else}}<span class="tag">verified {{ago .AgeSeconds}}</span>{{end}}</td>
+      <td>{{if .Count}}{{.Count}}{{else}}<span class="muted">-</span>{{end}}</td>
+      <td>{{if .LastSource}}<code>{{.LastSource}}</code>{{else}}<span class="muted">-</span>{{end}}</td>
+    </tr>{{end}}
+    </tbody>
+  </table>{{end}}
   <h2>Recent touches</h2>
   {{if .Events}}
   <table>

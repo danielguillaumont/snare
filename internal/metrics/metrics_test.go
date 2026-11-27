@@ -85,3 +85,18 @@ func TestMisuse(t *testing.T) {
 	nilC.Inc() // nil metrics are no-ops, so callers can leave them unset
 	nilH.Observe(1)
 }
+
+func TestGaugeVecFunc(t *testing.T) {
+	r := New()
+	r.GaugeVecFunc("snare_x_age_seconds", "Age.", "channel", func() map[string]float64 {
+		return map[string]float64{"http": 12, "dns": 3.5, `we"ird`: 1}
+	})
+	var b strings.Builder
+	r.Write(&b)
+	want := "# HELP snare_x_age_seconds Age.\n# TYPE snare_x_age_seconds gauge\n" +
+		"snare_x_age_seconds{channel=\"dns\"} 3.5\nsnare_x_age_seconds{channel=\"http\"} 12\n" +
+		"snare_x_age_seconds{channel=\"we\\\"ird\"} 1\n"
+	if b.String() != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", b.String(), want)
+	}
+}
