@@ -95,6 +95,15 @@ through.
 findings to every SIEM and chat channel would only add noise and a filter every rule must
 remember ([M11](M11-heartbeat.md#decision-heartbeats-dont-reach-sinks)).
 
+**M13 (2026-11-26): G1 is not closed.**
+- With every layer and all 17 decoys in the tool list, 34.5% of engaged credential hunters
+  were caught, against M3a's 36.4% by the same measure.
+- Benign trips stayed 0/180.
+- Exposure wasn't the limit. About a third of hunters reach for a credential-named tool, and
+  only three decoys match the hunt.
+- The next lever is more credential-shaped decoys, screened first
+  ([results-m13](results-m13.md)).
+
 **M12 (2026-11-26):** no value reuse had already been fixed for repo and corpus in M3a-fix.
 M12 checks it for every plant command, and adds a layout with no token in the URL. On
 names, the published result is the limit DEPTH expected. A generator in public code can't
