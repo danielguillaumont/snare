@@ -22,7 +22,8 @@ A touch is the alert.
 |---|---|---|
 | **False positives:** benign agents touch decoys | Measured low | 0/600 normal runs, 2/232 near-decoy runs (M0); 0/300 held-out hard-benign after screening (M3a-fix2); 0/291 on AgentDojo (M3c). See [results-m0](results-m0.md), [results-m3a-fix2](results-m3a-fix2.md), [results-m3c](results-m3c.md) |
 | **Decoys hurt the agent's real work** | Small | −3.4 points utility on AgentDojo, inside the pre-registered −5 limit ([results-m3c](results-m3c.md)) |
-| **Hijacked agent never touches a trap** | Partly measured | 42% of credential-hunting agents caught (46/110) on an authorized-audit proxy ([results-m3a](results-m3a.md)). On AgentDojo, no tool-using injection succeeded, so detection there is **unmeasured** |
+| **Hijacked agent never touches a trap** | Partly measured | About a third of engaged credential-hunting agents trip an alert-level tripwire (92/267 with every layer, [results-m13](results-m13.md)), on an authorized-audit proxy. With early warnings, 106/138 are on the record, 57 of them as warnings only ([results-m16](results-m16.md)). On AgentDojo, no tool-using injection succeeded, so detection there is **unmeasured** |
+| **A server changes a tool's definition after it is trusted** (rug pull) | Detected as a warning | The gateway pins definitions on first sight and warns on change ([M17](M17-tool-integrity.md)). How often benign servers change definitions is **unmeasured** |
 | **Attacker fingerprints Snare** (known decoy names, token prefix) | Mitigated in part | Fixed prefix removed, per-field tokens, per-install decoy names. The scripted evader went from 200/200 evasions to 200/200 caught. Names adapted to the real server (M12) defeat a skip-list of known names (0 → 59/200 caught). An attacker who has read the generator still evades all generated names (0/200). Operator-chosen names reduce it to the rate of one who knows nothing ([results-m3a-fix](results-m3a-fix.md), [results-m12](results-m12.md)) |
 | **Agent is warned about honeypots and avoids them** | Not solved | Warned agents still flag the honey key about as often (69% vs 75%) ([results-m3a-fix](results-m3a-fix.md)) |
 | **Exfiltration without touching the network or a decoy** | Out of scope | Snare only sees touches. An injection that only changes the agent's answer (AgentDojo travel task 6) is invisible to it, by design |
@@ -89,6 +90,10 @@ The gateway runs on the agent's machine, in the path of every tool call
 | A context canary gives itself away (M10) | No Snare wording, varied phrasing by seed, each value its own token; a second prompt plant is refused through the manifest, not by a marker in the file | `TestPromptPassage`, `TestPromptFileAppendsOnce`, `TestMemoryRecords` |
 | A broken alert path goes unnoticed until the touch that mattered (M11) | Scheduled heartbeats per channel, a stale metric and a never state for expected channels | `TestEndToEndHeartbeat` |
 | Forged heartbeats keep a broken channel looking alive (M11) | Accepted. A heartbeat token (in `gw.json`, or from a captured probe) can only refresh a heartbeat: it cannot create, hide or alter a touch, and heartbeats never alert. They verify plumbing, not identity ([M11 §4](M11-heartbeat.md#4-limits)) | `TestHeartbeatIsNotAnEvent` |
+| A thief downgrades a stolen honey key's alert by copying the gateway's warning parameters (M16, M17) | Only the token's kind makes a warning. Warnings have their own `exposure_signal` and `integrity_signal` tokens, and a honey token's touch alerts whatever its query says | `TestHoneyTouchIsNeverAWarning`, `TestExposureLayerIsNotAVia` |
+| The exposure scan leaks what the agent read (M16) | Results are scanned in memory. The callback carries the tool, the session and the ledger, never the matched value or the text | `TestHoneyInResultWarnsOncePerTool` |
+| A long session floods the record with warnings (M16, M17) | At most one warning per tool per session for each kind | `TestHoneyInResultWarnsOncePerTool`, `TestPinsOnFirstSightAndWarnsOnChange` |
+| The pin file leaks tool descriptions (M17) | It holds SHA-256 fingerprints only, mode 0600 | `TestPinsOnFirstSightAndWarnsOnChange` |
 | A fresh session id per touch, to split incidents and keep every alert High (M7) | Severity also counts the same source's touches in the hour before, as before M7. A forged session can split the incident list, never lower severity | `TestForgedSessionsCannotHideCorrelation` |
 
 Decoy tokens are in `gw.json`, as they are in the `decoy-mcp` config. An agent that can read
@@ -96,6 +101,11 @@ the file can tell which tools are decoys. Keep it outside the agent's workspace;
 command writes it with mode 0600.
 
 ### Residual risk (known, accepted or not yet addressed)
+
+- **Tool pins trust first use (M17).** A definition that is already poisoned the first time
+  the gateway sees it is pinned as the trusted one. Anyone who can write the agent's machine
+  can also edit or delete `gw.json.pins`, as with `gw.json`. Review a server's tools before
+  you first put it behind the gateway.
 
 - **A tenant admin key can mute tripwires.** Disabling a tripwire (M4e) is exactly what
   an insider who wanted to go unnoticed would do. It can't be done silently:
