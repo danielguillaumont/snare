@@ -58,7 +58,35 @@ func printTimeline(w io.Writer, d admin.IncidentDetail) error {
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s (%s)\n", t.At.Format(time.RFC3339), stage, layer, t.ID, t.Status, t.Label, t.Kind)
 	}
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	return printInputs(w, d.Timeline)
+}
+
+// printInputs lists, per touch, what the agent received through the gateway before it
+// (docs/M9-provenance.md), newest first.
+func printInputs(w io.Writer, touches []admin.IncidentTouch) error {
+	for _, t := range touches {
+		if len(t.Inputs) == 0 {
+			continue
+		}
+		fmt.Fprintf(w, "\ninputs before event %d, newest first:\n", t.ID)
+		tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
+		fmt.Fprintln(tw, "  AGO\tTOOL\tCHARS\tFINGERPRINT\tSOURCE")
+		for i := len(t.Inputs) - 1; i >= 0; i-- {
+			in := t.Inputs[i]
+			src := in.Source
+			if src == "" {
+				src = "-"
+			}
+			fmt.Fprintf(tw, "  %ds\t%s\t%d\t%s\t%s\n", in.AgeSeconds, in.Tool, in.Length, in.Fingerprint, src)
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func source(session, ip string) string {

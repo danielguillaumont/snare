@@ -83,6 +83,8 @@ The gateway runs on the agent's machine, in the path of every tool call
 | A contained agent learns which values are traps (M8) | A blocked leak and a frozen call get the same error, which names nothing | `TestContainmentBlocksTheLeakAndFreezes` |
 | The agent restarts its server to escape the freeze (M8) | The freeze is in a state file the next gateway reads at start; an unreadable file stays frozen | `TestFreezeSurvivesRestartUntilReleased`, `TestUnreadableStateFileStaysFrozen` |
 | A forged or silent release (M8) | Release needs an admin key and a contained touch for that session in the tenant; each is audited with its note. Deleting the state file by hand also releases, unaudited: anyone with write access to the agent's machine can, so the audit covers the normal path | `TestReleaseSessionIsAudited`, `TestEndToEndContainment` |
+| The input ledger leaks what the agent read (M9) | Fingerprints, lengths and tool names only, in memory, last 8 for an hour. Argument values are sent only with the `names` opt-in | `TestLedgerNeverSendsContentOrArguments`, `TestLedgerNamesOnlyWhenOptedIn`, `TestEndToEndProvenance` |
+| Forged `in*`/`src*` values to point a responder at an innocent file (M9) | Exact shape or dropped; a valid token is still required to record anything. An input is a lead to check, not a verdict ([M9 §4](M9-provenance.md#4-limits)) | `TestHTTPInputsAreValidated` |
 | A fresh session id per touch, to split incidents and keep every alert High (M7) | Severity also counts the same source's touches in the hour before, as before M7. A forged session can split the incident list, never lower severity | `TestForgedSessionsCannotHideCorrelation` |
 
 Decoy tokens are in `gw.json`, as they are in the `decoy-mcp` config. An agent that can read

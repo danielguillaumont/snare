@@ -23,7 +23,7 @@ func TestMain(m *testing.M) {
 var noFlags = map[string]bool{"version": true, "keygen": true, "serve": true}
 
 // Subcommands whose first argument selects a further subcommand with its own flag set.
-var nested = map[string]bool{"plant": true, "tenant": true}
+var nested = map[string]bool{"plant": true, "tenant": true, "provenance": true}
 
 // Subcommands that run on their own but also have named subcommands.
 var optionalNested = map[string]map[string]bool{"gateway": {"release": true}}

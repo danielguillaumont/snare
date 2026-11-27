@@ -58,19 +58,28 @@ func (s SlackSink) Send(ctx context.Context, a Alert) error {
 		header = "CRITICAL: " + u.CriticalBecause
 		prefix = "Snare CRITICAL: "
 	}
+	fields := []any{
+		field("Tripwire", u.Label),
+		field("Kind", u.Kind),
+		field("Channel", u.Channel),
+		field("Source", a.SrcEndpoint.IP),
+		field("Time (UTC)", when),
+		field("Detail", u.Detail),
+	}
+	if len(u.Inputs) > 0 { // M9: what the agent read just before
+		in := u.Inputs[len(u.Inputs)-1]
+		v := fmt.Sprintf("%s, %s chars, %s earlier, fingerprint %s", in.Tool, thousands(in.Length), ago(in.AgeSeconds), in.Fingerprint)
+		if in.Source != "" {
+			v = in.Source + " (" + v + ")"
+		}
+		fields = append(fields, field("Last input", v))
+	}
 	msg := map[string]any{
 		// Fallback for notifications; mrkdwn fields carry the same facts.
 		"text": prefix + slackEscape(u.Label),
 		"blocks": []any{
 			map[string]any{"type": "header", "text": map[string]string{"type": "plain_text", "text": header}},
-			map[string]any{"type": "section", "fields": []any{
-				field("Tripwire", u.Label),
-				field("Kind", u.Kind),
-				field("Channel", u.Channel),
-				field("Source", a.SrcEndpoint.IP),
-				field("Time (UTC)", when),
-				field("Detail", u.Detail),
-			}},
+			map[string]any{"type": "section", "fields": fields},
 			map[string]any{"type": "context", "elements": []any{
 				map[string]string{"type": "mrkdwn", "text": "finding " + slackEscape(a.FindingInfo.UID) + " · tenant " + slackEscape(a.Metadata.TenantUID)},
 			}},

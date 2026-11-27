@@ -28,7 +28,7 @@ type harness struct {
 	done       chan error
 }
 
-func newHarness(t *testing.T, cfg Config) *harness {
+func newHarness(t *testing.T, cfg Config, opts ...func(*Gateway)) *harness {
 	t.Helper()
 	h := &harness{t: t, serverRecv: make(chan []byte, 64), calls: make(chan *http.Request, 16), done: make(chan error, 1)}
 	cb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { h.calls <- r }))
@@ -52,6 +52,9 @@ func newHarness(t *testing.T, cfg Config) *harness {
 		close(h.serverRecv)
 	}()
 	g := &Gateway{Cfg: cfg, Session: "stest01"}
+	for _, o := range opts {
+		o(g)
+	}
 	go func() { h.done <- g.Run(context.Background(), cIn, cOut, sIn, sOut) }()
 	t.Cleanup(func() { cInW.Close(); sOutW.Close() })
 	return h

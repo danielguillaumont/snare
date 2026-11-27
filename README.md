@@ -126,7 +126,8 @@ sha256sum -c SHA256SUMS --ignore-missing
 | M6 gateway: decoys inside real MCP servers, egress detection, session ids | ✅ Built, about 29 µs per call ([results](docs/M6-gateway.md#results)) |
 | M7 layers, stages and incidents: kill-chain severity, incident timeline, layer coverage | ✅ Built ([results](docs/M7-incidents.md#results)) |
 | M8 containment (opt-in): the leaking call is blocked, the session frozen, release audited | ✅ Built ([results](docs/M8-containment.md#results)) |
-| M9–M14 Snare in depth: attribution, context canaries, proof | Planned ([docs/DEPTH.md](docs/DEPTH.md)) |
+| M9 provenance: the alert says what the agent read just before it touched a trap | ✅ Built ([results](docs/M9-provenance.md#results)) |
+| M10–M14 Snare in depth: context canaries, proof | Planned ([docs/DEPTH.md](docs/DEPTH.md)) |
 | M5 design partners | Not started |
 
 Full plan and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).

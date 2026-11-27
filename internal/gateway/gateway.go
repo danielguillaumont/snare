@@ -48,6 +48,8 @@ type Config struct {
 
 	// Contain turns on containment (docs/M8-containment.md). Nil is off, the default.
 	Contain *Contain `json:"contain,omitempty"`
+	// Provenance configures the input ledger (docs/M9-provenance.md).
+	Provenance *Provenance `json:"provenance,omitempty"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -114,6 +116,9 @@ type Gateway struct {
 	frozen  bool              // contained (M8)
 	// persisted: the freeze is in the state file, so removing the file releases it.
 	persisted bool
+	calls     map[string]callInfo // forwarded real tool calls awaiting a result (M9)
+	ledger    []input             // the last results, oldest first (M9)
+	now       func() time.Time    // tests
 
 	outMu sync.Mutex // serializes writes to the client
 	wg    sync.WaitGroup
@@ -131,7 +136,7 @@ func (g *Gateway) init() {
 		_, _ = rand.Read(b)
 		g.Session = "s" + hex.EncodeToString(b)
 	}
-	g.pending, g.real = map[string]bool{}, map[string]bool{}
+	g.pending, g.real, g.calls = map[string]bool{}, map[string]bool{}, map[string]callInfo{}
 	if len(g.Cfg.Fingerprints) > 0 {
 		set := token.FingerprintSet{}
 		for _, fp := range g.Cfg.Fingerprints {
@@ -235,6 +240,7 @@ func (g *Gateway) fromClient(ctx context.Context, line []byte, clientOut io.Writ
 					return g.containCall(ctx, m, clientOut, serverIn, line)
 				}
 				g.inspect(ctx, m.Params.Arguments, m.Params.Name)
+				g.track(m)
 			}
 		}
 	} else if bytes.Contains(t, []byte(`"tools/call"`)) {
@@ -269,6 +275,7 @@ func (g *Gateway) containCall(ctx context.Context, m message, clientOut, serverI
 		g.fire(ctx, body, "egress", m.Params.Name, "blocked")
 		return block()
 	}
+	g.track(m)
 	_, err := serverIn.Write(line)
 	return err
 }
@@ -281,13 +288,20 @@ func (g *Gateway) fromServer(line []byte) []byte {
 		return line
 	}
 	var m message
-	if json.Unmarshal(t, &m) != nil || len(m.ID) == 0 || m.Method != "" || len(m.Result) == 0 {
+	if json.Unmarshal(t, &m) != nil || len(m.ID) == 0 || m.Method != "" {
 		return line
 	}
 	key := idKey(m.ID)
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if !g.pending[key] {
+	if ci, ok := g.calls[key]; ok { // a real tool's result: into the ledger, line unchanged
+		delete(g.calls, key)
+		if len(m.Result) > 0 {
+			g.record(ci, m.Result)
+		}
+		return line
+	}
+	if len(m.Result) == 0 || !g.pending[key] {
 		return line
 	}
 	delete(g.pending, key)
@@ -486,6 +500,7 @@ func (g *Gateway) fire(ctx context.Context, tok, layer, tool, action string) {
 	if action != "" {
 		q.Set("contain", action)
 	}
+	g.ledgerParams(q)
 	u := strings.TrimRight(g.Cfg.CallbackURL, "/") + p + url.PathEscape(tok) + "?" + q.Encode()
 	g.wg.Add(1)
 	go func() {
