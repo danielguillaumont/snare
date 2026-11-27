@@ -24,7 +24,7 @@ func TestPlantProfiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Decoys) != len(creds) || len(es) != len(creds)+1 || cfg.Heartbeat == nil {
+	if len(cfg.Decoys) != len(creds) || len(es) != len(creds)+2 || cfg.Heartbeat == nil || cfg.Exposure == nil {
 		t.Fatalf("gateway: %d decoys, %d entries, heartbeat %v", len(cfg.Decoys), len(es), cfg.Heartbeat)
 	}
 	for name := range cfg.Decoys {

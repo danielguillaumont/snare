@@ -315,7 +315,10 @@ func (d *Dashboard) overview(w http.ResponseWriter, r *http.Request, s session) 
 			return
 		}
 		crit, why := c.Critical(e.Stage)
-		isOpen := e.Status == store.StatusOpen && !e.Muted
+		if e.Warning { // a warning raises what follows, never itself (M16)
+			crit, why = false, ""
+		}
+		isOpen := e.Status == store.StatusOpen && !e.Muted && !e.Warning
 		if isOpen {
 			open++
 			if crit {

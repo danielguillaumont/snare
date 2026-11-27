@@ -137,7 +137,7 @@ func usage() {
                      [-style snake|camel|kebab] [-seed N] [-names F] [-catalog-names]
   snare plant gateway [-dry-run] [-manifest F] -config F [-style auto|adapt|snake|camel|kebab|catalog]
                      [-seed N] [-names F] [-profile P] [-exclude a,b] [-contain exfiltration|recon]
-                     [-provenance-names] [-heartbeat 15m|0]
+                     [-provenance-names] [-heartbeat 15m|0] [-exposure=false]
                      | -refresh -config F
   snare gateway -config F [-v] -- <real server command> [args]
   snare gateway release -config F -note TEXT
@@ -231,6 +231,9 @@ func events(args []string) error {
 		if e.Muted {
 			st += " (muted)"
 		}
+		if e.Warning {
+			st += " (warning)"
+		}
 		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", e.ID, e.At.Format(time.RFC3339), st, e.Channel, e.TokenID, e.SourceIP, e.Detail)
 	}
 	return tw.Flush()
@@ -259,6 +262,7 @@ func plantCmd(args []string) error {
 	refresh := fs.Bool("refresh", false, "gateway: re-fetch fingerprints for an existing -config")
 	contain := fs.String("contain", "", "gateway: opt in to containment at this stage: exfiltration or recon (off by default)")
 	heartbeat := fs.String("heartbeat", "15m", "gateway: heartbeat interval (at least 1m), or 0 for none")
+	exposure := fs.Bool("exposure", true, "gateway: warn when a honey value reaches the agent in a tool result (-exposure=false for none)")
 	provNames := fs.Bool("provenance-names", false, "gateway: send each input's path or URL argument with touches (off by default)")
 	file := fs.String("file", "", "prompt: system prompt file to append the passage to (default: print it)")
 	count := fs.Int("count", plant.DefaultMemoryCount, "memory: number of records to write")
@@ -356,7 +360,7 @@ func plantCmd(args []string) error {
 			return nil
 		}
 		ex := strings.FieldsFunc(*exclude, func(r rune) bool { return r == ',' || r == ' ' })
-		gwo := plant.GatewayOptions{Options: opts, ConfigPath: *config, Exclude: ex, Profiles: decoys.ParseProfiles(*profile), Style: "auto", Contain: *contain, ProvenanceNames: *provNames, Heartbeat: *heartbeat}
+		gwo := plant.GatewayOptions{Options: opts, ConfigPath: *config, Exclude: ex, Profiles: decoys.ParseProfiles(*profile), Style: "auto", Contain: *contain, ProvenanceNames: *provNames, Heartbeat: *heartbeat, NoExposure: !*exposure}
 		if styleSet {
 			gwo.Style = *style
 		}

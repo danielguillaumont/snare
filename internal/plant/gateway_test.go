@@ -35,18 +35,29 @@ func TestGatewayConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// One entry per decoy, plus the heartbeat token (docs/M11-heartbeat.md), minted as a
-	// heartbeat so its touches are never alerts.
-	if len(entries) != len(decoys.Catalog) || len(cfg.Decoys) != len(entries)-1 {
+	// One entry per decoy, plus the heartbeat token (docs/M11-heartbeat.md) and the exposure
+	// token (docs/M16-early-warning.md), each minted under its own kind so its touches are
+	// never alerts.
+	if len(entries) != len(decoys.Catalog)+1 || len(cfg.Decoys) != len(entries)-2 {
 		t.Fatalf("entries %d, decoys %d", len(entries), len(cfg.Decoys))
 	}
-	last := entries[len(entries)-1]
-	if hb := cfg.Heartbeat; hb == nil || hb.Every != "15m" || hb.Token == "" || last.Kind != "heartbeat" || f.calls[len(f.calls)-1].Kind != "heartbeat" {
-		t.Fatalf("heartbeat: %+v, entry %+v, kinds %v", cfg.Heartbeat, last, f.calls)
+	hbe, exe := entries[len(entries)-2], entries[len(entries)-1]
+	if hb := cfg.Heartbeat; hb == nil || hb.Every != "15m" || hb.Token == "" || hbe.Kind != "heartbeat" || f.calls[len(f.calls)-2].Kind != "heartbeat" {
+		t.Fatalf("heartbeat: %+v, entry %+v, kinds %v", cfg.Heartbeat, hbe, f.calls)
 	}
-	// -heartbeat 0 plants none; a bad interval is refused.
-	if es, _, err := Gateway(&fakeGW{}, GatewayOptions{ConfigPath: filepath.Join(t.TempDir(), "gw.json"), Heartbeat: "0"}); err != nil || len(es) != len(decoys.Catalog) {
-		t.Fatalf("heartbeat 0: %d entries, %v", len(es), err)
+	if ex := cfg.Exposure; ex == nil || ex.Token == "" || ex.Token == cfg.Heartbeat.Token || exe.Kind != "exposure_signal" || f.calls[len(f.calls)-1].Kind != "exposure_signal" {
+		t.Fatalf("exposure: %+v, entry %+v", cfg.Exposure, exe)
+	}
+	// -heartbeat 0 and -exposure=false plant none; a bad interval is refused.
+	if es, _, err := Gateway(&fakeGW{}, GatewayOptions{ConfigPath: filepath.Join(t.TempDir(), "gw.json"), Heartbeat: "0", NoExposure: true}); err != nil || len(es) != len(decoys.Catalog) {
+		t.Fatalf("heartbeat 0, no exposure: %d entries, %v", len(es), err)
+	}
+	off := filepath.Join(t.TempDir(), "gw.json")
+	if _, _, err := Gateway(&fakeGW{}, GatewayOptions{ConfigPath: off, NoExposure: true}); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := gateway.LoadConfig(off); c.Exposure != nil {
+		t.Fatalf("-exposure=false still configured %+v", c.Exposure)
 	}
 	if _, _, err := Gateway(&fakeGW{}, GatewayOptions{ConfigPath: filepath.Join(t.TempDir(), "gw.json"), Heartbeat: "10s"}); err == nil {
 		t.Fatal("a 10s heartbeat was accepted")

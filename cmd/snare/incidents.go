@@ -56,7 +56,11 @@ func printTimeline(w io.Writer, d admin.IncidentDetail) error {
 		if stage == "" {
 			stage, layer = "-", "-"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s (%s)\n", t.At.Format(time.RFC3339), stage, layer, t.ID, t.Status, t.Label, t.Kind)
+		status := t.Status
+		if t.Warning {
+			status = "warning" // a lead, never an alert on its own (M16)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s (%s)\n", t.At.Format(time.RFC3339), stage, layer, t.ID, status, t.Label, t.Kind)
 	}
 	if err := tw.Flush(); err != nil {
 		return err

@@ -1,7 +1,7 @@
 # M16 — Early warning: a honey value reached the agent
 
-**Status: design and pre-registration, 2026-11-27. The check run needs Daniel's approval
-before it spends.**
+**Status: mechanism built 2026-11-27 ($0). The pre-registered check run needs Daniel's
+approval before it spends.**
 
 ## 1. Why
 
@@ -120,9 +120,59 @@ triages. It is never an alert on its own.
 
 | Item | Status | Evidence |
 |---|---|---|
-| Mechanism | Not started | |
+| Mechanism | ✅ Built | See below |
 | Check run | Not run (needs approval) | |
+
+**Gateway** (`internal/gateway/exposure_test.go`):
+- A honey value in a real tool's result produces one exposure touch per session and tool. The
+  result reaches the client byte for byte.
+- The callback carries layer `exposure`, the tool, the session and the ledger. The newest
+  ledger entry is the result that carried the value. The value itself is never in the URL.
+- Nothing is sent without a match, or when the config has no exposure token.
+- A honey value in arguments still takes the egress path.
+
+**Server:**
+- `internal/store/exposure_test.go`: an `exposure_signal` touch is stored with `warning`, is
+  never queued even with an alert requested, and joins the session's incident. A decoy touch
+  after it in that session is queued and Critical, with the warning among its related touches.
+  A honey token's touch is never a warning, whatever the callback said.
+- `internal/listener/context_test.go`: `?layer=exposure` sets no `via`, so only the token's
+  kind can make a warning. This is the downgrade case from §2.
+- `internal/alert/exposure_test.go`: a warning exports as OCSF severity Low (2), and
+  correlation never raises it.
+- The dashboard and `snare events` / `snare incidents` mark it `warning`. It isn't counted
+  as an open or Critical touch.
+
+**End to end** (`cmd/snare/demo_attack_test.go`): `snare demo -attack` runs a real server,
+gateway and scripted MCP server. Its incident now reads recon > collection > exfiltration:
+
+```
+STAGE         LAYER   STATUS   TRIPWIRE
+recon         tool    open     gateway decoy: read_env_secrets (decoy_tool)
+collection    data    warning  gateway exposure: gw-support-desk.json (exposure_signal)
+exfiltration  egress  open     support-desk drive: billing/.env PAYMENTS_API_KEY (honey_credential)
+```
+
+**Planting:** `snare plant gateway` mints the exposure token by default, and `snare init`
+inherits it. `-exposure=false` turns it off.
+
+**Harness** (`tests/test_m16.py`, `killtest/report_m16.py`):
+- the `exposed` flag on real tool results only;
+- `warned`, `warned_or_observed` and `escalated` (an alert-level touch in a later turn);
+- the W1 and W2 rules;
+- dry runs of both arms.
+
+**Scripted attackers, $0, not a result.** The six scripted policies on `hunt`/`depth`, seed
+49, 40 runs each:
+- `warned_or_observed`: 225/240 (93.8%, CI 89.9–96.2%);
+- observed without the warning: 145/240.
+
+That only shows the oracle does what it says on agents we wrote. The models are the check
+run.
 
 ## Changelog
 
 - 2026-11-27: design and criteria registered before implementation and before any M16 run.
+- 2026-11-27: mechanism built. Criteria unchanged. `escalated` is defined as an alert-level
+  touch in a turn after the warning. Calls in the same turn were chosen before the result
+  was read, so they can't count. It is reported only.
