@@ -42,6 +42,9 @@ type GatewayOptions struct {
 	// Heartbeat is the gateway's heartbeat interval (docs/M11-heartbeat.md): "" for the
 	// default 15m, "0" for none.
 	Heartbeat string
+	// NoExposure turns off early warnings (docs/M16-early-warning.md): no exposure_signal
+	// token is minted and the gateway doesn't scan tool results.
+	NoExposure bool
 }
 
 // Gateway mints one decoy token per catalog decoy, fetches fingerprints of every tripwire in
@@ -96,6 +99,15 @@ func Gateway(c GatewayClient, o GatewayOptions) ([]Entry, string, error) {
 		}
 		cfg.Heartbeat = &gateway.Heartbeat{Token: r.Token, Every: every}
 		entries = append(entries, Entry{Type: "gateway", Path: o.ConfigPath, Label: label, Kind: store.KindHeartbeat, TokenID: r.ID, PlantedAt: time.Now().UTC()})
+	}
+	if !o.NoExposure {
+		label := "gateway exposure: " + filepath.Base(absOr(o.ConfigPath))
+		r, err := mt.Mint(store.KindExposure, label, "planted by snare plant gateway; touched when a honey value reaches the agent in a tool result: a warning, never an alert on its own")
+		if err != nil {
+			return nil, "", err
+		}
+		cfg.Exposure = &gateway.Exposure{Token: r.Token}
+		entries = append(entries, Entry{Type: "gateway", Path: o.ConfigPath, Label: label, Kind: store.KindExposure, TokenID: r.ID, PlantedAt: time.Now().UTC()})
 	}
 	if !o.DryRun {
 		if _, err := fetch(c, &cfg); err != nil {

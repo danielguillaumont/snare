@@ -79,6 +79,9 @@ type Event struct {
 	// Inputs: what the agent received through the gateway before this touch, oldest
 	// first (M9). Fingerprints and lengths, never content.
 	Inputs []Input `json:"inputs,omitempty"`
+	// Warning: a touch of an exposure_signal token (M16). Recorded and correlated, never
+	// alerted on its own.
+	Warning bool `json:"warning,omitempty"`
 }
 
 // Input is one tool result the gateway saw before a touch (docs/M9-provenance.md).
@@ -216,6 +219,7 @@ var migrations = []struct{ table, column, ddl string }{
 	{"events", "incident_id", `ALTER TABLE events ADD COLUMN incident_id INTEGER NOT NULL DEFAULT 0`},
 	{"events", "containment", `ALTER TABLE events ADD COLUMN containment TEXT NOT NULL DEFAULT ''`},
 	{"events", "inputs", `ALTER TABLE events ADD COLUMN inputs TEXT NOT NULL DEFAULT ''`},
+	{"events", "warning", `ALTER TABLE events ADD COLUMN warning INTEGER NOT NULL DEFAULT 0`},
 }
 
 const indexes = `
@@ -406,7 +410,7 @@ func (v *tenantView) ListTokens(ctx context.Context) ([]Token, error) {
 	return out, rows.Err()
 }
 
-const eventCols = `id, tenant_id, token_id, channel, source_ip, detail, at, prev_key, muted, status, triage_note, triaged_at, triaged_by, layer, stage, session_id, incident_id, containment, inputs`
+const eventCols = `id, tenant_id, token_id, channel, source_ip, detail, at, prev_key, muted, status, triage_note, triaged_at, triaged_by, layer, stage, session_id, incident_id, containment, inputs, warning`
 
 func scanEvents(rows *sql.Rows) ([]Event, error) {
 	defer rows.Close()
@@ -417,7 +421,7 @@ func scanEvents(rows *sql.Rows) ([]Event, error) {
 		var triaged sql.NullInt64
 		var inputs string
 		if err := rows.Scan(&e.ID, &e.TenantID, &e.TokenID, &e.Channel, &e.SourceIP, &e.Detail, &ms, &e.PreviousKey,
-			&e.Muted, &e.Status, &e.TriageNote, &triaged, &e.TriagedBy, &e.Layer, &e.Stage, &e.Session, &e.IncidentID, &e.Containment, &inputs); err != nil {
+			&e.Muted, &e.Status, &e.TriageNote, &triaged, &e.TriagedBy, &e.Layer, &e.Stage, &e.Session, &e.IncidentID, &e.Containment, &inputs, &e.Warning); err != nil {
 			return nil, err
 		}
 		if inputs != "" {

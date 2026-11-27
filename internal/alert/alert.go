@@ -123,6 +123,9 @@ type Unmapped struct {
 	// What the agent received through the gateway before this touch, oldest first
 	// (docs/M9-provenance.md). Fingerprints and lengths, never content.
 	Inputs []store.Input `json:"inputs,omitempty"`
+	// Warning: an exposure warning (docs/M16-early-warning.md), severity Low, never sent
+	// to sinks on its own.
+	Warning bool `json:"warning,omitempty"`
 }
 
 // ProductVersion is reported in metadata.product.version.
@@ -165,8 +168,16 @@ func New(tok store.Token, ev store.Event) Alert {
 			Channel: ev.Channel, Detail: ev.Detail, EventID: ev.ID,
 			CorrelatedTripwires: 1, VerifiedByPreviousKey: ev.PreviousKey,
 			Layer: ev.Layer, Stage: ev.Stage, SessionID: ev.Session, IncidentID: ev.IncidentID,
-			Containment: ev.Containment, Inputs: ev.Inputs,
+			Containment: ev.Containment, Inputs: ev.Inputs, Warning: ev.Warning,
 		},
+	}
+	if ev.Warning { // docs/M16-early-warning.md §2
+		a.SeverityID, a.Severity = 2, "Low"
+		a.Message = "Snare warning: a honey value reached an agent through a tool result"
+		a.FindingInfo.Title = "Honey value reached the agent: " + tok.Label
+		a.FindingInfo.Desc = "A gateway saw a planted honey value in a real tool's result, so the agent " +
+			"has read it. Nothing has used it yet. Legitimate work can read config files, so this is " +
+			"a lead, not an alert; a tripwire touch in the same session becomes Critical."
 	}
 	if s := LastInput(ev.Inputs); s != "" {
 		a.FindingInfo.Desc += " " + s
@@ -221,7 +232,7 @@ func (a *Alert) Correlate(c store.Correlation, stage string, window time.Duratio
 		})
 	}
 	critical, why := c.Critical(stage)
-	if !critical {
+	if !critical || a.Unmapped.Warning {
 		return
 	}
 	a.SeverityID, a.Severity = 5, "Critical"

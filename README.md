@@ -143,6 +143,7 @@ sha256sum -c SHA256SUMS --ignore-missing
 | M13b smaller default decoy set: pre-registered screen | ❌ Published: declines 24% vs 33% but missed the bar (CI upper 30.4% vs < 28.8%); detection 40%, 0/180 benign trips. Default stays all 17; `-profile credentials` ships as an option ([results](docs/results-m13b.md)) |
 | M15 detection where harm happens: pre-registered | ⏹ Stopped at the pilot stage: 0/40 harmful runs. Haiku wouldn't send credentials, so there was nothing to measure ([results](docs/results-m15.md)) |
 | M14 first run, end to end | ✅ `snare init` (plan, wrap, verify, coverage) and `snare demo -attack` ([design](docs/M14-first-run.md)) |
+| M16 early warning: a honey value reaching the agent in a tool result is recorded as a warning that makes the next touch Critical | ✅ Built, check run pending ([design](docs/M16-early-warning.md)) |
 | M5 design partners | Not started |
 
 Full plan and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).

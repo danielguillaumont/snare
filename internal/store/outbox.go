@@ -113,6 +113,10 @@ func (s *Store) RecordHit(ctx context.Context, e Event, alert bool) (tok Token, 
 		e.Muted = true
 		alert = false
 	}
+	e.Warning = found && tok.Kind == KindExposure // a warning, never an alert (M16 §2)
+	if e.Warning {
+		alert = false
+	}
 	e.Status = StatusOpen
 	e.Layer, e.Stage = Classify(tok.Kind, e.Via)
 	if len(e.Session) > maxSession {
@@ -133,10 +137,10 @@ func (s *Store) RecordHit(ctx context.Context, e Event, alert bool) (tok Token, 
 		return Token{}, Event{}, false, false, err
 	}
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO events (tenant_id, token_id, channel, source_ip, detail, at, prev_key, muted, layer, stage, session_id, incident_key, incident_id, containment, inputs)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO events (tenant_id, token_id, channel, source_ip, detail, at, prev_key, muted, layer, stage, session_id, incident_key, incident_id, containment, inputs, warning)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.TenantID, e.TokenID, e.Channel, e.SourceIP, e.Detail, e.At.UnixMilli(), e.PreviousKey, e.Muted,
-		e.Layer, e.Stage, e.Session, key, e.IncidentID, e.Containment, string(inputs))
+		e.Layer, e.Stage, e.Session, key, e.IncidentID, e.Containment, string(inputs), e.Warning)
 	if err != nil {
 		return Token{}, Event{}, false, false, err
 	}

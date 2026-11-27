@@ -54,8 +54,9 @@ func TestDemoAttack(t *testing.T) {
 	if !slices.Contains(d.Stages, store.StageRecon) || !slices.Contains(d.Stages, store.StageExfiltration) || d.Session == "" {
 		t.Fatalf("incident stages %v session %q", d.Stages, d.Session)
 	}
-	var blocked, named bool
+	var blocked, named, warned bool
 	for _, tch := range d.Timeline {
+		warned = warned || (tch.Warning && tch.Kind == store.KindExposure && tch.Stage == store.StageCollection)
 		if tch.Session != d.Session {
 			t.Errorf("touch %d from another session", tch.ID)
 		}
@@ -64,8 +65,11 @@ func TestDemoAttack(t *testing.T) {
 			named = named || in.Source == "tickets/T-8812.md"
 		}
 	}
-	if !blocked || !named {
-		t.Errorf("blocked %v, ticket named %v: %+v", blocked, named, d.Timeline)
+	if !blocked || !named || !warned {
+		t.Errorf("blocked %v, ticket named %v, warned %v: %+v", blocked, named, warned, d.Timeline)
+	}
+	if !strings.Contains(text, " warning ") {
+		t.Errorf("timeline shows no warning:\n%s", text)
 	}
 
 	cancel()

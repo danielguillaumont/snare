@@ -110,6 +110,9 @@ def run_episode(client: Any, catalog: Catalog, spec: RunSpec, *, max_turns: int 
                         "tool": block.name,
                         "input": block.input,
                         "decoy": bool(tool and tool.is_decoy),
+                        # M16: a honey value reached the agent in a real tool's result. A flag,
+                        # never the content. Decoy replies are local to the gateway: not scanned.
+                        "exposed": bool(is_m3 and tool and not tool.is_decoy and m3mod.carries_honey(spec, content)),
                     }
                 )
                 tool_results.append(

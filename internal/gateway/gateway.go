@@ -54,7 +54,19 @@ type Config struct {
 	// Heartbeat sends a synthetic touch at start and on an interval (docs/M11-heartbeat.md).
 	// Nil is off.
 	Heartbeat *Heartbeat `json:"heartbeat,omitempty"`
+	// Exposure warns when a honey value reaches the agent in a tool result
+	// (docs/M16-early-warning.md). Nil is off.
+	Exposure *Exposure `json:"exposure,omitempty"`
 }
+
+// Exposure configures early warnings. Token is an exposure_signal token: its touches are
+// warnings, never alerts on their own, and honey tokens are never touched for an exposure.
+type Exposure struct {
+	Token string `json:"token"`
+}
+
+// layerExposure is the layer a gateway reports with an exposure touch.
+const layerExposure = "exposure"
 
 func LoadConfig(path string) (Config, error) {
 	var c Config
@@ -101,6 +113,9 @@ func (c Config) Validate() error {
 			return err
 		}
 	}
+	if c.Exposure != nil && c.Exposure.Token == "" {
+		return errors.New("exposure has no token")
+	}
 	if c.Contain != nil {
 		return c.Contain.validate()
 	}
@@ -125,6 +140,10 @@ type Gateway struct {
 	params  map[string][]decoys.Param // catalog name -> arguments shown, when adapted (M12)
 	tools   []decoys.RealTool         // real tools seen so far, for style adapt
 	frozen  bool                      // contained (M8)
+	// exposed: tools whose results already produced an exposure this session (M16);
+	// toExpose: exposures waiting to be sent once g.mu is released.
+	exposed  map[string]bool
+	toExpose []string
 	// persisted: the freeze is in the state file, so removing the file releases it.
 	persisted bool
 	calls     map[string]callInfo // forwarded real tool calls awaiting a result (M9)
@@ -148,6 +167,7 @@ func (g *Gateway) init() {
 		g.Session = "s" + hex.EncodeToString(b)
 	}
 	g.pending, g.real, g.calls = map[string]bool{}, map[string]bool{}, map[string]callInfo{}
+	g.exposed = map[string]bool{}
 	if len(g.Cfg.Fingerprints) > 0 {
 		set := token.FingerprintSet{}
 		for _, fp := range g.Cfg.Fingerprints {
@@ -175,7 +195,11 @@ func (g *Gateway) Run(ctx context.Context, clientIn io.Reader, clientOut io.Writ
 		}
 		_ = serverIn.Close()
 	}()
-	err := eachLine(serverOut, func(line []byte) error { return g.write(clientOut, g.fromServer(line)) })
+	err := eachLine(serverOut, func(line []byte) error {
+		out := g.fromServer(line)
+		g.flushExposures(ctx)
+		return g.write(clientOut, out)
+	})
 	close(stop)
 	done := make(chan struct{})
 	go func() { g.wg.Wait(); close(done) }()
@@ -316,6 +340,7 @@ func (g *Gateway) fromServer(line []byte) []byte {
 		delete(g.calls, key)
 		if len(m.Result) > 0 {
 			g.record(ci, m.Result)
+			g.noteExposure(ci, m.Result)
 		}
 		return line
 	}
@@ -494,6 +519,34 @@ func (g *Gateway) inspect(ctx context.Context, args []byte, tool string) {
 	}
 }
 
+// noteExposure queues an exposure when a real tool's result carries a honey value: once per
+// session and tool. The result itself is relayed unchanged. Called with g.mu held.
+func (g *Gateway) noteExposure(ci callInfo, result json.RawMessage) {
+	if g.Cfg.Exposure == nil || g.Cfg.Exposure.Token == "" || g.exposed[ci.tool] {
+		return
+	}
+	text, ok := resultText(result)
+	if !ok {
+		return
+	}
+	if _, hit := g.find([]byte(text)); hit {
+		g.exposed[ci.tool] = true
+		g.toExpose = append(g.toExpose, ci.tool)
+	}
+}
+
+// flushExposures sends the queued exposures. It takes g.mu itself, so it runs after
+// fromServer has released it (fire reads the ledger under the same lock).
+func (g *Gateway) flushExposures(ctx context.Context) {
+	g.mu.Lock()
+	q := g.toExpose
+	g.toExpose = nil
+	g.mu.Unlock()
+	for _, tool := range q {
+		g.fire(ctx, g.Cfg.Exposure.Token, layerExposure, tool, "")
+	}
+}
+
 // find returns the honey value in args, if any. A failure is treated as no match.
 func (g *Gateway) find(args []byte) (body string, ok bool) {
 	if g.matcher == nil || len(args) == 0 {
@@ -511,8 +564,6 @@ func (g *Gateway) find(args []byte) (body string, ok bool) {
 // DefaultURLPath matches the callback server's default (admin.DefaultURLPath).
 const DefaultURLPath = "/v1/"
 
-// fire sends a callback carrying tok and the session context, in the background. action
-// is the containment taken ("blocked", "frozen") or empty.
 // touchURL is the callback URL that touches tok, with query q.
 func touchURL(cfg Config, tok string, q url.Values) string {
 	p := cfg.URLPath
@@ -526,6 +577,8 @@ func touchURL(cfg Config, tok string, q url.Values) string {
 	return strings.TrimRight(cfg.CallbackURL, "/") + p + url.PathEscape(tok) + "?" + q.Encode()
 }
 
+// fire sends a callback carrying tok and the session context, in the background. action
+// is the containment taken ("blocked", "frozen") or empty.
 func (g *Gateway) fire(ctx context.Context, tok, layer, tool, action string) {
 	q := url.Values{"layer": {layer}, "session": {g.Session}}
 	if layer != layerHeartbeat { // a heartbeat is about the path, not the agent: no tool, no ledger

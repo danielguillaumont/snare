@@ -13,6 +13,11 @@ import (
 // KindHeartbeat is the token kind whose touches are heartbeats.
 const KindHeartbeat = "heartbeat"
 
+// KindExposure is the token kind a gateway touches when a honey value reaches the agent in a
+// tool result (docs/M16-early-warning.md). Its touches are warnings: recorded, part of the
+// incident, never alerted on their own.
+const KindExposure = "exposure_signal"
+
 // Heartbeat channels.
 const (
 	BeatHTTP    = "http"
