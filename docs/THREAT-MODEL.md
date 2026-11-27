@@ -79,6 +79,10 @@ The gateway runs on the agent's machine, in the path of every tool call
 | The gateway leaks tool arguments | Arguments are scanned in memory only. A callback carries the matched honey token (already in the agent's hands), the layer, the tool name and the session id | Callback-contents assertions in the gateway tests |
 | Hostile arguments make the scan slow | At most 4,096 windows per call: about 1.7 ms in the worst case ([results](M6-gateway.md#results)) | `TestFingerprintScanIsBounded`, `BenchmarkMatcherWorstCase` |
 | Forged callback context (`layer`, `session`) | Three allowlisted keys with a strict charset; a valid token is still required to record anything. `layer=egress` can only raise severity | `TestHTTPCallbackContextIsAllowlisted`, `TestHTTPArrivalContext` |
+| Containment breaks agents that were never attacked (M8) | Off by default. Only Snare's own tokens trigger it; `-contain exfiltration` acts only when a honey value is leaving | `TestContainConfig`, `TestGatewayContainIsOptIn` |
+| A contained agent learns which values are traps (M8) | A blocked leak and a frozen call get the same error, which names nothing | `TestContainmentBlocksTheLeakAndFreezes` |
+| The agent restarts its server to escape the freeze (M8) | The freeze is in a state file the next gateway reads at start; an unreadable file stays frozen | `TestFreezeSurvivesRestartUntilReleased`, `TestUnreadableStateFileStaysFrozen` |
+| A forged or silent release (M8) | Release needs an admin key and a contained touch for that session in the tenant; each is audited with its note. Deleting the state file by hand also releases, unaudited: anyone with write access to the agent's machine can, so the audit covers the normal path | `TestReleaseSessionIsAudited`, `TestEndToEndContainment` |
 | A fresh session id per touch, to split incidents and keep every alert High (M7) | Severity also counts the same source's touches in the hour before, as before M7. A forged session can split the incident list, never lower severity | `TestForgedSessionsCannotHideCorrelation` |
 
 Decoy tokens are in `gw.json`, as they are in the `decoy-mcp` config. An agent that can read

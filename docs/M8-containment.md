@@ -142,9 +142,19 @@ gateway behaves exactly as in M6.
 
 ## Results
 
+Built 2026-11-26. No model calls, no API spend. Every item is a test in `go test ./...`.
+
 | Item | Status | Evidence |
 |---|---|---|
-| Block and freeze | Not started | |
-| Persistence and release | Not started | |
-| Fail-open | Not started | |
-| End to end | Not started | |
+| Block and freeze | Done | `TestContainmentBlocksTheLeakAndFreezes`: the leaking call isn't forwarded; the next call is blocked with the same text; tool lists and decoys still work; the state file holds no arguments and no honey value. Also `TestContainmentAtRecon` (both settings) and `TestContainedBatch` |
+| Persistence and release | Done | `TestFreezeSurvivesRestartUntilReleased`: a second gateway starts frozen, and both forward after the release. `TestUnreadableStateFileStaysFrozen`. `TestReleaseSessionIsAudited`: no contained touch is 404, and the note and actor are in the audit log. `TestReleaseFrozen`: the freeze is kept when the server refuses the release |
+| Mutation checks | Done | Each of these fails a test: forwarding the leaking call, ignoring a release, and not loading the freeze at start |
+| Fail-open | Done | `TestSnareDownForwardingUnaffected`: with the callback URL unreachable, every call (leaks included) is forwarded in under 100 ms. With containment on, the block still happens locally |
+| Isolation | Done | `ReleaseSession` in `TestTenantIsolationMatrix`; the route in `TestAPITenantIsolationMatrix` |
+| End to end | Done | `TestEndToEndContainment`: the real tool never receives the leak; the next call is blocked; the incident timeline shows `blocked`; an unknown session's release is 404; the audited release lets calls flow on the running gateway |
+| Overhead | Measured | Ten one-second runs each of `BenchmarkRoundTripGateway` and `BenchmarkRoundTripGatewayContain`, 1 KB calls and 500 tripwires. Medians: 85.2 µs without containment, 79.4 µs with it, so no measurable difference ([bench/gateway-contain.txt](../bench/gateway-contain.txt)). The machine was busier than in M6's run, whose 54 µs figure stands for the absolute cost |
+
+**What this does not show.**
+- **How agents react.** A blocked agent may retry, give up or tell the user. That has not
+  been measured with real models; M13 can check it under its budget.
+- **Remote touches.** Touches the gateway doesn't see don't contain yet.

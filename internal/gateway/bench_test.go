@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -62,7 +63,14 @@ func BenchmarkRoundTripDirect(b *testing.B) {
 	roundTrips(b, toSrv, bufio.NewReader(fromSrv))
 }
 
-func BenchmarkRoundTripGateway(b *testing.B) {
+func BenchmarkRoundTripGateway(b *testing.B) { benchGateway(b, nil) }
+
+// With containment on, a real call is scanned before it is forwarded (M8).
+func BenchmarkRoundTripGatewayContain(b *testing.B) {
+	benchGateway(b, &Contain{StateFile: filepath.Join(b.TempDir(), "frozen")})
+}
+
+func benchGateway(b *testing.B, contain *Contain) {
 	s, _ := token.NewSigner(bytes.Repeat([]byte{1}, 32))
 	const salt = "bench-salt-0123456789"
 	var fps []string
@@ -78,7 +86,7 @@ func BenchmarkRoundTripGateway(b *testing.B) {
 	sIn, toSrv := io.Pipe()
 	fromSrv, sOut := io.Pipe()
 	go echoServer(sIn, sOut)
-	g := &Gateway{Cfg: Config{CallbackURL: "http://127.0.0.1:1", Style: "catalog", Salt: salt, Fingerprints: fps}}
+	g := &Gateway{Cfg: Config{CallbackURL: "http://127.0.0.1:1", Style: "catalog", Salt: salt, Fingerprints: fps, Contain: contain}}
 	go func() { _ = g.Run(context.Background(), cIn, cOut, toSrv, fromSrv) }()
 	defer toGW.Close()
 	roundTrips(b, toGW, bufio.NewReader(fromGW))
