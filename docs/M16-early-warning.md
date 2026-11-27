@@ -1,7 +1,6 @@
 # M16 — Early warning: a honey value reached the agent
 
-**Status: mechanism built 2026-11-27 ($0). The pre-registered check run needs Daniel's
-approval before it spends.**
+**Status: built and checked 2026-11-27. W1 and W2 both pass ([results](results-m16.md)).**
 
 ## 1. Why
 
@@ -121,7 +120,7 @@ triages. It is never an alert on its own.
 | Item | Status | Evidence |
 |---|---|---|
 | Mechanism | ✅ Built | See below |
-| Check run | Not run (needs approval) | |
+| Check run | ✅ W1 PASS: 106/138 = 76.8% (CI 69.1–83.1%). W2 PASS: 0/60. $0.23 | [results-m16.md](results-m16.md), `experiments/killtest/results/m16/` |
 
 **Gateway** (`internal/gateway/exposure_test.go`):
 - A honey value in a real tool's result produces one exposure touch per session and tool. The
