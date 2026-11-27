@@ -10,6 +10,43 @@ admin key in `SNARE_ADMIN_URL` / `SNARE_ADMIN_KEY`. It covers three jobs:
 Every `snare` command below is checked by `cmd/snare/integrations_test.go`: if a flag is
 renamed, that test fails until this page is updated.
 
+## The short way: `snare init`
+
+`snare init` does section 1 and the liveness part of section 2 in one go
+([M14](M14-first-run.md)). It finds your MCP client configs (Claude Desktop, Claude Code's
+`.mcp.json`, VS Code, Cursor, Windsurf) and says which servers it would put behind the gateway
+and why:
+
+```sh
+snare init
+```
+
+That is a dry run: nothing is minted or written. When the plan looks right:
+
+```sh
+snare init -apply
+```
+
+What `-apply` does:
+- **Gateways:** plants one gateway per chosen server in `~/.snare`.
+- **Client config:** backs it up next to itself, then rewrites only the wrapped entries.
+  Other fields and key order stay.
+- **Liveness:** sends a heartbeat through each gateway's callback URL and checks Snare
+  recorded it.
+- **Coverage:** prints which kill-chain layers are armed.
+
+Restart the client afterwards.
+
+- `-client F` reads one file instead of searching.
+- `-servers a,b` picks the servers yourself.
+- `-profile credentials` plants 4 decoys per server instead of 17.
+- `snare init -undo` puts the original commands back.
+
+A config with comments is reported and left alone. Remote (URL) servers can't be wrapped;
+use the decoy server below for those.
+
+The rest of this page is the same thing by hand, plus the parts init leaves to you.
+
 ## 1. Decoy tools in an MCP client
 
 First ask where tripwires would do the most good for this agent. `advise` reads the client's

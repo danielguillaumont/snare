@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -50,4 +52,30 @@ func (g *Gateway) heartbeat(ctx context.Context, every time.Duration, stop <-cha
 			g.fire(ctx, g.Cfg.Heartbeat.Token, layerHeartbeat, "", "")
 		}
 	}
+}
+
+// Beat sends one heartbeat for cfg now, tagged with session, and waits for the answer. It is
+// what snare init uses to check a new gateway config can reach Snare (docs/M14-first-run.md).
+func Beat(ctx context.Context, cfg Config, session string, hc *http.Client) error {
+	if cfg.Heartbeat == nil || cfg.Heartbeat.Token == "" {
+		return errors.New("heartbeat is off in this gateway config")
+	}
+	if hc == nil {
+		hc = &http.Client{Timeout: 5 * time.Second}
+	}
+	u := touchURL(cfg, cfg.Heartbeat.Token, url.Values{"layer": {layerHeartbeat}, "session": {session}})
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", "snare-init/1")
+	resp, err := hc.Do(req)
+	if err != nil {
+		return fmt.Errorf("callback %s unreachable: %w", cfg.CallbackURL, err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 500 {
+		return fmt.Errorf("callback %s answered %d", cfg.CallbackURL, resp.StatusCode)
+	}
+	return nil
 }

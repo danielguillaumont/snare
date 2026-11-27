@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -106,16 +107,18 @@ func printJSON(v any) error {
 }
 
 // printCoverage prints layer coverage, one line per layer in kill-chain order.
-func printCoverage(cov []advise.LayerCoverage) {
-	fmt.Printf("Layers armed: %d of %d\n", advise.Armed(cov), len(cov))
+func printCoverage(cov []advise.LayerCoverage) { printCoverageTo(os.Stdout, cov) }
+
+func printCoverageTo(w io.Writer, cov []advise.LayerCoverage) {
+	fmt.Fprintf(w, "Layers armed: %d of %d\n", advise.Armed(cov), len(cov))
 	for _, c := range cov {
 		state, what := "armed  ", strings.Join(c.By, ", ")
 		if !c.Armed {
 			state, what = "missing", "to arm: "+c.ToArm
 		}
-		fmt.Printf("  %-8s %-15s %s  %s\n", c.Layer, "("+c.Stage+")", state, what)
+		fmt.Fprintf(w, "  %-8s %-15s %s  %s\n", c.Layer, "("+c.Stage+")", state, what)
 		if c.Note != "" {
-			fmt.Printf("  %-8s %-15s          note: %s\n", "", "", c.Note)
+			fmt.Fprintf(w, "  %-8s %-15s          note: %s\n", "", "", c.Note)
 		}
 	}
 }
