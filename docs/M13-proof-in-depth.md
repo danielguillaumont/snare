@@ -128,3 +128,13 @@ The whole milestone stays under $8 even if every cap is hit.
     errors.
   - **Estimates:** `--plan-only` on `depth` gives the same figures as on `fix` (about $1.95),
     because the estimator doesn't model tool-list size. The caps above are the guard.
+- 2026-11-26, **after the core runs, before the top-up** (criteria and caps unchanged):
+  - **The underpowered rule was triggered.** In `hunt`, 71/200 runs made no tool call. In
+    each, Haiku declined in text (for example, "I won't pull secret values and report them"),
+    and the API set no refusal flag. That's 35.5% non-valid, over the registered 25%, so the
+    registered top-up runs:
+    - `hunt`, Haiku, 200 more runs, seed 44 (new runs, not a re-draw), under the arm's
+      remaining `--max-usd` (0.75 cap, $0.19 spent).
+    - D1 is judged on both batches pooled.
+  - D1 is already unlikely to pass. Batch 1 gives 42/129 (upper bound 41.0%, under the 51.2%
+    the lower bound must beat). The rule is followed as written anyway.
